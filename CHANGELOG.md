@@ -6,7 +6,7 @@ content ship from one tag, so one entry covers both.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.1.0 — 2026-09-09
 
 `hats`, a Rust CLI that replaces chezmoi, the Makefile, six `run_` scripts, a
 Bitwarden fetch script and four hand-written zsh profile files.
