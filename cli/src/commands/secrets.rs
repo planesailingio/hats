@@ -176,9 +176,10 @@ fn clear(app: &mut App) -> Result<i32> {
 
 fn enrol(app: &mut App, slot: Option<String>) -> Result<i32> {
     let cfg = app.config()?;
+    // The plugin numbers the retired PIV slots 1-20, not by their hex ids.
     let slot = slot
         .or_else(|| cfg.local.secrets.envelope.slot.clone())
-        .unwrap_or_else(|| "82".into());
+        .unwrap_or_else(|| "1".into());
 
     app.ui.heading("Enrolling a YubiKey");
     app.ui.say(

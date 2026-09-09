@@ -169,26 +169,46 @@ pub fn open(path: &Path, identity_file: &Path) -> Result<Credentials> {
 /// Shelling out is deliberate: `age-plugin-yubikey --generate` needs a terminal
 /// for the PIV PIN, and reimplementing PIV provisioning to avoid one prompt
 /// would be a large amount of security-critical code for no gain.
+///
+/// It takes two calls because of that terminal. The plugin prompts through its
+/// own stdout, so capturing the generated identity from it would leave the PIN
+/// prompt with a pipe and fail with "not a terminal"; instead `--generate` runs
+/// with our stdio attached, and the identity is read back afterwards with a
+/// second, non-interactive `--identity` call against the same slot.
 pub fn enrol_yubikey(slot: &str, name: &str, identity_path: &Path) -> Result<String> {
     which::which("age-plugin-yubikey")
         .context("age-plugin-yubikey is not installed. Run `brew install age-plugin-yubikey`.")?;
 
-    let out = std::process::Command::new("age-plugin-yubikey")
+    let status = std::process::Command::new("age-plugin-yubikey")
         .args(["--generate", "--slot", slot, "--name", name])
         .args(["--pin-policy", "once", "--touch-policy", "always"])
-        .output()
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
         .context("running age-plugin-yubikey --generate")?;
+
+    if !status.success() {
+        anyhow::bail!("age-plugin-yubikey --generate failed ({status}); see its output above");
+    }
+
+    // Reading the slot back rather than the generate output, which went to the
+    // terminal. This call needs no PIN: the recipient lives in the slot's
+    // certificate.
+    let out = std::process::Command::new("age-plugin-yubikey")
+        .args(["--identity", "--slot", slot])
+        .output()
+        .context("running age-plugin-yubikey --identity")?;
 
     if !out.status.success() {
         anyhow::bail!(
-            "age-plugin-yubikey --generate failed: {}",
+            "age-plugin-yubikey --identity failed: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
 
     let identity = String::from_utf8_lossy(&out.stdout).into_owned();
     let recipient = extract_recipient(&identity)
-        .or_else(|| extract_recipient(&String::from_utf8_lossy(&out.stderr)))
         .context("could not find the recipient in age-plugin-yubikey's output")?;
 
     if let Some(parent) = identity_path.parent() {
@@ -200,8 +220,8 @@ pub fn enrol_yubikey(slot: &str, name: &str, identity_path: &Path) -> Result<Str
     Ok(recipient)
 }
 
-/// Pull `age1yubikey1...` out of the plugin's output, from either the
-/// `#    Recipient:` comment or the bare line it prints to stderr.
+/// Pull `age1yubikey1...` out of the plugin's output: the `#    Recipient:`
+/// comment in an identity block, or any bare line carrying the recipient.
 fn extract_recipient(text: &str) -> Option<String> {
     text.lines()
         .flat_map(|l| l.split_whitespace())
@@ -243,7 +263,7 @@ AGE-PLUGIN-YUBIKEY-1QXYZ
     }
 
     #[test]
-    fn the_recipient_is_found_in_the_bare_stderr_form() {
+    fn the_recipient_is_found_in_a_bare_line() {
         assert_eq!(
             extract_recipient("Recipient: age1yubikey1abc123\n").as_deref(),
             Some("age1yubikey1abc123")
