@@ -1,0 +1,11 @@
+# ~/.zshenv — sourced for ALL shells (login, interactive, and non-interactive `ssh host cmd`).
+# Keep this minimal and side-effect-free. NEVER put interactive prompts or secret fetches here.
+# Managed by hats.
+
+# AWSume: alias must be available everywhere `awsume` is invoked.
+alias awsume="source awsume"
+fpath=(~/.awsume/zsh-autocomplete/ $fpath)
+
+# Homebrew shellenv. The prefix is resolved once by hats from the OS and
+# architecture, replacing the nested conditionals this file used to carry.
+[ -x {{ brew_prefix }}/bin/brew ] && eval "$({{ brew_prefix }}/bin/brew shellenv)"

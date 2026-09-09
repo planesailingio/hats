@@ -1,0 +1,114 @@
+# hats.yaml — the manifest that ships with these dotfiles.
+#
+# Deliberately generic. It says which files exist, how they are grouped for the
+# `hats init` wizard, and which hooks run. It holds no client names, no
+# identities and no secret item names: all of that is machine-local, in
+# ~/.hats/config.yaml, so this repo can be shared without leaking who you work
+# for.
+#
+# Paths under `files:` are relative to files/ and land at the same path under
+# $HOME, with a trailing .j2 stripped. A directory is managed recursively.
+
+hats:
+  schema: 1
+
+groups:
+  shell:
+    description: "zsh: history, completions, aliases, tool init"
+    default: true
+  git:
+    description: "~/.gitconfig with delta, aliases and LFS"
+    default: true
+  ssh:
+    description: "~/.ssh/config skeleton that includes your machine-local config.d/*.conf"
+    default: true
+  theme:
+    description: "Catppuccin Mocha for starship, bat, btop, k9s and lazygit"
+    default: true
+  tools:
+    description: "mise global runtimes (python, node, go)"
+    default: true
+  env-bundles:
+    description: "dev/staging/prod environment bundles for the envp picker"
+    default: false
+  editor:
+    description: "VS Code extension list (installed by a hook)"
+    default: false
+
+files:
+  - { path: .zshrc.j2, group: shell }
+  - { path: .zshenv.j2, group: shell }
+  - { path: .gitconfig.j2, group: git, secret: true }
+  - { path: .ssh/config.j2, group: ssh, mode: "0600", dir_mode: "0700" }
+  - { path: .config/starship.toml, group: theme }
+  - { path: .config/bat, group: theme }
+  - { path: .config/btop, group: theme }
+  - { path: .config/k9s, group: theme }
+  - { path: .config/lazygit, group: theme }
+  - { path: .config/mise, group: tools }
+  - { path: .env.d, group: env-bundles }
+  - { path: .config/hats/vscode-extensions.list, group: editor }
+
+hooks:
+  # Covers the path where someone runs `hats init` without the bootstrap script.
+  - name: install-homebrew
+    phase: before
+    trigger: once
+    script: hooks/install-homebrew.sh
+
+  # Re-runs whenever any bundle file or the hook itself changes. Declaring the
+  # inputs replaces chezmoi's trick of embedding a sha256sum comment in the
+  # script, and covers the hook script too.
+  #
+  # The four bundle files are listed individually, not as the brew/ directory:
+  # onchange hashes each input with fs::read, which fails on a directory and
+  # hashes as "<missing>", so a directory input would never register a change.
+  # A new bundle file must be added here.
+  - name: brew-bundle
+    phase: after
+    trigger:
+      onchange:
+        - brew/core.Brewfile
+        - brew/devops.Brewfile
+        - brew/pentest.Brewfile
+        - brew/dev.Brewfile
+        - hooks/brew-bundle.sh
+    script: hooks/brew-bundle.sh
+
+  - name: zsh-setup
+    phase: after
+    trigger: { onchange: [hooks/zsh-setup.sh, files/.config/mise/config.toml] }
+    script: hooks/zsh-setup.sh
+
+  - name: macos-defaults
+    phase: after
+    trigger: once
+    os: [darwin]
+    script: hooks/macos-defaults.sh
+
+  - name: dock
+    phase: after
+    trigger: { onchange: [hooks/dock.sh] }
+    os: [darwin]
+    script: hooks/dock.sh
+
+  # Creates ~/.ssh/config.d and ~/.ssh/known_hosts.d and seeds the README that
+  # explains the per-client recipe. Never overwrites anything.
+  - name: ssh-local
+    phase: after
+    trigger: once
+    script: hooks/ssh-local.sh
+
+  # Only meaningful once the editor group is enabled; the hook exits cleanly
+  # when the list is absent or the `code` command is not on PATH.
+  - name: vscode-extensions
+    phase: after
+    trigger: { onchange: [files/.config/hats/vscode-extensions.list, hooks/vscode-extensions.sh] }
+    script: hooks/vscode-extensions.sh
+
+secrets:
+  # Advisory: `hats lint` warns when a hat refers to a secret outside this
+  # list. The names are keys, not vault item names — discovery is by label, and
+  # the mapping lives on the machine.
+  required:
+    - git_signing_key

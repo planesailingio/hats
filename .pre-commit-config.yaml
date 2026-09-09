@@ -1,0 +1,43 @@
+# pre-commit hooks for the dotfiles repo. Install with: pre-commit install
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+        name: gitleaks (block committed secrets)
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+        # k9s skins are not valid standalone YAML documents.
+        exclude: ^files/\.config/k9s/skins/
+      - id: end-of-file-fixer
+        exclude: ^files/\.config/bat/themes/
+      - id: trailing-whitespace
+        exclude: ^files/\.config/bat/themes/
+      - id: check-executables-have-shebangs
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: ["-e", "SC1090,SC1091,SC2296"]
+
+  - repo: local
+    hooks:
+      # The manifest, the templates and the hats are as much a part of the
+      # product as the Rust, and a broken one is only caught at apply time
+      # otherwise.
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false

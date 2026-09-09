@@ -1,0 +1,4 @@
+# bat — managed by chezmoi
+--theme="Catppuccin Mocha"
+--style="numbers,changes,header"
+--italic-text=always

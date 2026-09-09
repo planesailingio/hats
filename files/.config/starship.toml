@@ -1,0 +1,140 @@
+# Starship prompt — managed by chezmoi. gnzh-style two-line layout (oh-my-zsh),
+# Catppuccin Mocha colours, Nerd Font glyphs. Set your terminal font to a
+# Nerd Font (JetBrainsMono / MesloLGS) for the icons to render.
+
+"$schema" = 'https://starship.rs/config-schema.json'
+
+# ╭─user@host path ‹branch status›  󱃖 hat  ☸ kube  aws  tf        dur  code ↵
+# ╰─➤
+format = """
+╭─$username[@](cyan)$hostname $directory$git_branch$git_status${custom.hat}$kubernetes$aws$terraform
+╰─$character"""
+
+right_format = "$cmd_duration$status"
+
+palette = "catppuccin_mocha"
+add_newline = true
+
+[username]
+show_always = true
+style_user = "green"
+style_root = "bold red"
+format = "[$user]($style)"
+
+[hostname]
+ssh_only = false
+style = "green"
+format = "[$hostname]($style)"
+
+[directory]
+style = "bold blue"
+truncation_length = 8        # gnzh shows the (near-)full ~-relative path
+truncate_to_repo = false
+format = "[$path]($style)"
+read_only = " 󰌾"
+
+[git_branch]
+symbol = ""
+style = "yellow"
+format = " [‹$branch]($style)"
+
+# Renders the closing › even when clean, completing git_branch's ‹.
+[git_status]
+style = "yellow"
+format = "[$all_status$ahead_behind›]($style)"
+
+# ── Hat indicator (reads $HATS_HAT, set by `hat`) ─────────────────────────────
+[custom.hat]
+command = 'printf "%s" "${HATS_HAT:-normal}"'
+when = true
+shell = ["sh", "--norc"]
+description = "the hat this shell is wearing"
+format = " [󱃖 $output]($style)"
+style = "mauve"
+
+[character]
+success_symbol = "[➤](bold green)"
+error_symbol = "[➤](bold red)"
+vimcmd_symbol = "[❮](bold green)"
+
+[cmd_duration]
+min_time = 500
+style = "subtext0"
+format = "[󱎫 $duration]($style) "
+
+# gnzh's RPROMPT: last exit code in red, e.g. `1 ↵`
+[status]
+disabled = false
+style = "red"
+format = "[$status ↵]($style)"
+
+# ── Kubernetes: context + namespace, prod coloured red ────────────────────────
+[kubernetes]
+disabled = false
+symbol = "☸ "
+style = "blue"
+format = ' [$symbol$context( \($namespace\))]($style)'
+
+# Shorten long EKS ARNs; add your real cluster ARNs here.
+[kubernetes.context_aliases]
+"arn:aws:eks:.*:.*:cluster/(.*)" = "$1"
+"gke_.*_(.*)" = "$1"
+
+# Style rules: anything matching prod goes bold red as a wrong-window guard.
+[[kubernetes.contexts]]
+context_pattern = ".*prod.*"
+style = "bold red"
+symbol = "🚨 ☸ "
+
+[[kubernetes.contexts]]
+context_pattern = ".*(staging|stage|uat).*"
+style = "yellow"
+
+[[kubernetes.contexts]]
+context_pattern = ".*(dev|develop|sandbox|local|kind|minikube).*"
+style = "green"
+
+# ── AWS: profile + region (only shows when creds detected) ────────────────────
+[aws]
+symbol = " "
+style = "peach"
+format = ' [$symbol$profile(\($region\))]($style)'
+[aws.region_aliases]
+eu-west-1 = "euw1"
+eu-west-2 = "euw2"
+us-east-1 = "use1"
+
+# ── Terraform / OpenTofu: workspace ───────────────────────────────────────────
+[terraform]
+symbol = "󱁢 "
+style = "lavender"
+format = ' [$symbol$workspace]($style)'
+
+# ── Catppuccin Mocha palette ──────────────────────────────────────────────────
+[palettes.catppuccin_mocha]
+rosewater = "#f5e0dc"
+flamingo = "#f2cdcd"
+pink = "#f5c2e7"
+mauve = "#cba6f7"
+red = "#f38ba8"
+maroon = "#eba0ac"
+peach = "#fab387"
+yellow = "#f9e2af"
+green = "#a6e3a1"
+teal = "#94e2d5"
+sky = "#89dceb"
+sapphire = "#74c7ec"
+blue = "#89b4fa"
+lavender = "#b4befe"
+text = "#cdd6f4"
+subtext1 = "#bac2de"
+subtext0 = "#a6adc8"
+overlay2 = "#9399b2"
+overlay1 = "#7f849c"
+overlay0 = "#6c7086"
+surface2 = "#585b70"
+surface1 = "#45475a"
+surface0 = "#313244"
+base = "#1e1e2e"
+mantle = "#181825"
+crust = "#11111b"
