@@ -31,7 +31,7 @@ background tint — in *that shell only*. The window next door doesn't move.
 macOS and Linux, one binary, no runtime:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/planesailingio/hats/main/install.sh | sh
+curl -fsSL https://planesailingio.github.io/hats/install.sh | sh
 ```
 
 ## The problem
@@ -91,7 +91,7 @@ forty times a day, and `hats plan` / `hats apply` read like sentences.
 **1. Install it.**
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/planesailingio/hats/main/install.sh | sh
+curl -fsSL https://planesailingio.github.io/hats/install.sh | sh
 ```
 
 Installs Homebrew if you haven't got it — asking first — then installs hats and
@@ -112,7 +112,7 @@ sh -c "$(curl -fsLS https://raw.githubusercontent.com/planesailingio/hats/main/b
 In a container or a pipeline, `CI=1` skips the Homebrew prompt:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/planesailingio/hats/main/install.sh | CI=1 sh
+curl -fsSL https://planesailingio.github.io/hats/install.sh | CI=1 sh
 ```
 
 **2. Run the wizard.**

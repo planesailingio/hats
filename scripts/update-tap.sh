@@ -7,7 +7,7 @@
 #   scripts/update-tap.sh <version>        # generate Formula/hats.rb, then prompt to push
 #   HATS_TAP_CONFIRM=1 scripts/update-tap.sh <version>   # non-interactive push (CI)
 #
-# Requires: a published GitHub release v<version> with the .sha256 sidecar files
+# Requires: a published GitHub release v<version> with the .sha256 checksum files
 # for the four Unix archives. When GH_TOKEN is set (the release workflow passes a
 # GitHub App installation token) it is used to clone and push the tap; otherwise
 # the local git credential helper is used.

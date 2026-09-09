@@ -34,12 +34,12 @@ tap.
   `aarch64-unknown-linux-gnu`), each on a native runner except the aarch64
   Linux leg, which cross-links with `gcc-aarch64-linux-gnu`. Each produces
   `hats_<version>_<target>.tar.gz` containing `<name>/bin/hats`, the three
-  shell completions, `README.md` and `LICENSE`, plus a `.sha256` sidecar.
+  shell completions, `README.md` and `LICENSE`, plus a `.sha256` checksum file.
 - `release` — collects the archives and creates the GitHub release with
   `softprops/action-gh-release`; `prerelease` is set when the tag contains `-`.
 - `tap` — `needs: release`, skipped for prereleases. Runs
   `HATS_TAP_CONFIRM=1 scripts/update-tap.sh <version>`, which downloads the four
-  `.sha256` sidecars from the release, renders `Formula/hats.rb`, clones the
+  `.sha256` checksum files from the release, renders `Formula/hats.rb`, clones the
   tap, commits `hats <version>` and pushes.
 
 There is no GoReleaser here. It is used by the org's Go projects; every Rust
@@ -73,6 +73,25 @@ on the installation lookup.
 
 Commits pushed this way are authored by the app's bot user.
 
+## Prerequisite: GitHub Pages, for the install one-liner
+
+The README's install command is:
+
+```sh
+curl -fsSL https://planesailingio.github.io/hats/install.sh | sh
+```
+
+That is served by GitHub Pages straight from the repository, so Pages has to be
+switched on or the URL 404s: **Settings -> Pages -> Source: Deploy from a
+branch -> `main` -> `/ (root)`**. No workflow is involved; Pages publishes the
+branch as it stands, so `install.sh` at the repo root appears at `/hats/`.
+
+`.nojekyll` at the root turns off Jekyll processing, which the site does not
+need and which would otherwise decide for itself which files to publish.
+
+The raw URL, `https://raw.githubusercontent.com/planesailingio/hats/main/install.sh`,
+works whether or not Pages is on. bootstrap.sh still uses it.
+
 ## Prerequisite: this repository must live in the org
 
 The tap job reads **org-level** values from `planesailingio`. A workflow running
@@ -84,7 +103,7 @@ update `bootstrap.sh`, `README.md` and the docs to the new path anyway.
 ## Dry run before the first real release
 
 1. Push a prerelease tag, e.g. `v0.0.1-rc1`. Confirm the release shows four
-   archives with four sidecars, is marked as a prerelease, and the `tap` job was
+   archives with four checksum files, is marked as a prerelease, and the `tap` job was
    skipped.
 2. Render the formula locally without pushing (answer `N` at the prompt):
 

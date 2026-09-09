@@ -1,7 +1,7 @@
 #!/bin/sh
 # install.sh — get `hats` onto a macOS or Linux machine. Dependency-free POSIX sh.
 #
-#   sh -c "$(curl -fsLS https://raw.githubusercontent.com/planesailingio/hats/main/install.sh)"
+#   curl -fsSL https://planesailingio.github.io/hats/install.sh | sh
 #
 # Installs Homebrew if it is missing, asking first, then installs hats from the
 # tap. That is all it does: no `hats init`, no files written to your home
