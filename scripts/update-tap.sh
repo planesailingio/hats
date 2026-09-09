@@ -64,9 +64,17 @@ class Hats < Formula
   version "${VERSION}"
   license "MIT"
 
-  # No dependencies at install time. hats shells out to git, which every macOS
-  # and Linux box that has a dotfiles repo already has; everything else
-  # (age-plugin-yubikey, fzf, kubectl) is optional and reported by \`hats doctor\`.
+  # The age plugin that unseals the credential envelope. hats drives it as a
+  # subprocess, and the age crate resolves it on PATH at call time, so it has to
+  # be present rather than merely suggested.
+  #
+  # On Linux it also needs a running pcscd to reach the smartcard; that is a
+  # system service Homebrew does not manage, and \`hats doctor\` says so.
+  depends_on "age-plugin-yubikey"
+
+  # git is the only other hard requirement, and every machine with a dotfiles
+  # repo already has it. fzf and kubectl are optional and reported by
+  # \`hats doctor\`.
 
   on_macos do
     on_intel do

@@ -78,9 +78,12 @@ const TOOLS: &[(&str, bool, &str)] = &[
     ),
     ("kubectl", false, "per-profile kube context switching"),
     (
+        // Installed as a Homebrew dependency, so an absence here means a source
+        // build or a broken install. Still not fatal: it is only needed to
+        // unseal the credential envelope.
         "age-plugin-yubikey",
         false,
-        "YubiKey-protected secrets credentials",
+        "unsealing the YubiKey-protected credential envelope",
     ),
 ];
 

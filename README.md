@@ -104,7 +104,8 @@ called `hats` whose value is the secret key, or drop it in a folder called
 `hats`. Adding a secret is a change in your vault, not a commit here.
 
 The credentials that reach the vault are themselves encrypted, to a key
-generated inside a YubiKey's PIV applet:
+generated inside a YubiKey's PIV applet. The `age-plugin-yubikey` that does the
+unsealing is installed with hats, so there is nothing extra to fetch:
 
 ```sh
 hats secrets enrol-yubikey     # generate the key, seal the credentials
@@ -113,6 +114,9 @@ hats secrets fetch             # touch the key when it blinks
 
 Without a YubiKey, `hats secrets fetch` asks for the credentials each time and
 stores nothing.
+
+On Linux the plugin also needs a running `pcscd` to reach the smartcard. That is
+a system service rather than a Homebrew package; `hats doctor` reports it.
 
 ## Version lockstep
 

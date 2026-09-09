@@ -6,6 +6,14 @@ content ship from one tag, so one entry covers both.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Changed
+
+- The Homebrew formula now declares `age-plugin-yubikey` as a dependency. hats
+  drives it as a subprocess and the age crate resolves it on PATH at call time,
+  so it has to be present rather than merely suggested.
+
 ## 0.1.0 — 2026-09-09
 
 `hats`, a Rust CLI that replaces chezmoi, the Makefile, six `run_` scripts, a
