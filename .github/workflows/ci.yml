@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint-test:
+    name: lint & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install zsh
+        # The emitted profile scripts are syntax-checked with a real zsh. The
+        # tests skip that check when zsh is absent, so install it rather than
+        # let the most valuable assertion quietly not run.
+        shell: bash
+        run: |
+          # `A || B && C` parses as `(A || B) && C`, so an inline one-liner runs
+          # apt-get on macOS too. Be explicit.
+          if command -v zsh >/dev/null; then
+            echo "zsh already present: $(command -v zsh)"
+          else
+            sudo apt-get update
+            sudo apt-get install -y zsh
+          fi
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Test
+        # Integration tests drive real `git`, so it must be configured with an
+        # identity on the runner.
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "CI"
+          cargo test --all-features
+
+  msrv:
+    name: msrv
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read rust-version from the workspace
+        id: msrv
+        run: echo "version=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml | head -1)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-features
+
+  # The manifest and the shell scripts are as much a part of the product as the
+  # Rust, and they are what a broken release would take down with it.
+  shell:
+    name: shell scripts & manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shellcheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          # hooks/ does not exist until the migration phase; glob defensively.
+          shopt -s nullglob
+          files=(bootstrap.sh scripts/*.sh hooks/*.sh bin/*.sh)
+          if [ ${#files[@]} -eq 0 ]; then echo "no shell scripts yet"; exit 0; fi
+          printf 'checking %s\n' "${files[@]}"
+          shellcheck -S warning -e SC1090,SC1091 "${files[@]}"
+      - name: hats.yaml parses
+        run: python3 -c "import yaml,sys; yaml.safe_load(open('hats.yaml')); print('hats.yaml ok')"
+
+  # The tap script renders a formula from released artefacts. Nothing here
+  # touches the tap: it stops before the push.
+  tap-script:
+    name: tap script is syntactically sound
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/update-tap.sh && echo "update-tap.sh parses"
+
+  gitleaks:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The gitleaks binary, not gitleaks-action: the action requires a paid
+      # licence for organisation repositories, while the scanner itself is
+      # open source.
+      - name: Scan for committed secrets
+        run: |
+          set -euo pipefail
+          version=8.30.0
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" \
+            | tar -xz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --no-banner --redact --verbose
