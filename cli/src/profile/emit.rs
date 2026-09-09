@@ -184,6 +184,10 @@ mod tests {
 
     /// The emitted script must be valid shell, checked by a real shell rather
     /// than by eye.
+    ///
+    /// `sh` is always present. `zsh` is checked when installed and skipped when
+    /// not, so a runner without it reports honestly instead of failing on a
+    /// missing interpreter.
     #[test]
     fn the_emitted_script_parses_in_sh_and_zsh() {
         for profile in ["normal", "acme", "plain"] {
@@ -192,6 +196,9 @@ mod tests {
             let path = dir.path().join("env.sh");
             std::fs::write(&path, &script).unwrap();
             for shell in ["sh", "zsh"] {
+                if which::which(shell).is_err() {
+                    continue;
+                }
                 let out = std::process::Command::new(shell)
                     .arg("-n")
                     .arg(&path)

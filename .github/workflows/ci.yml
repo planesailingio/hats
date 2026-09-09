@@ -23,6 +23,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Install zsh
+        # The emitted profile scripts are syntax-checked with a real zsh. The
+        # tests skip that check when zsh is absent, so install it rather than
+        # let the most valuable assertion quietly not run.
+        shell: bash
+        run: command -v zsh >/dev/null || sudo apt-get update && sudo apt-get install -y zsh
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
@@ -84,6 +90,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The gitleaks binary, not gitleaks-action: the action requires a paid
+      # licence for organisation repositories, while the scanner itself is
+      # open source.
+      - name: Scan for committed secrets
+        run: |
+          set -euo pipefail
+          version=8.30.0
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" \
+            | tar -xz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --no-banner --redact --verbose
