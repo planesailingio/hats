@@ -310,9 +310,13 @@ fn run_shellcheck(app: &App, problems: &mut Vec<String>) {
             );
         }
     }
-    let bootstrap = app.paths.repo.join("bootstrap.sh");
-    if bootstrap.is_file() {
-        scripts.push(bootstrap);
+    // The two root-level entry points are named rather than globbed: nothing
+    // else at the top of the repo is a shell script we own.
+    for name in ["bootstrap.sh", "install.sh"] {
+        let path = app.paths.repo.join(name);
+        if path.is_file() {
+            scripts.push(path);
+        }
     }
     if scripts.is_empty() {
         return;
