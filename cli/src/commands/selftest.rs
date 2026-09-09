@@ -102,10 +102,7 @@ fn profile_checks(app: &App, cfg: &Config) -> Result<Vec<Check>> {
         let resolved = match cfg.resolve_hat(&name) {
             Ok(p) => p,
             Err(e) => {
-                checks.push(check(
-                    format!("hat {name}"),
-                    Verdict::Fail(e.to_string()),
-                ));
+                checks.push(check(format!("hat {name}"), Verdict::Fail(e.to_string())));
                 continue;
             }
         };
@@ -131,10 +128,7 @@ fn profile_checks(app: &App, cfg: &Config) -> Result<Vec<Check>> {
                 let want_aws_suffix = format!("/{name}.config");
 
                 if parts.first() != Some(&name.as_str()) {
-                    Verdict::Fail(format!(
-                        "HATS_HAT was {:?}, expected {name}",
-                        parts.first()
-                    ))
+                    Verdict::Fail(format!("HATS_HAT was {:?}, expected {name}", parts.first()))
                 } else if parts.get(1).copied() != Some(want_email.as_str()) {
                     Verdict::Fail(format!(
                         "GIT_AUTHOR_EMAIL was {:?}, expected {want_email:?}",
@@ -177,10 +171,7 @@ fn kube_isolation(app: &App, cfg: &Config) -> Result<Check> {
         })
         .collect();
     if isolated.len() < 2 {
-        return Ok(check(
-            name,
-            Verdict::Skip("needs two isolated hats".into()),
-        ));
+        return Ok(check(name, Verdict::Skip("needs two isolated hats".into())));
     }
 
     let exe = std::env::current_exe()?;
@@ -241,10 +232,7 @@ fn commit_identity(app: &App, cfg: &Config) -> Result<Check> {
             .and_then(|p| p.identity.email.clone())
             .map(|e| (n, e))
     }) else {
-        return Ok(check(
-            name,
-            Verdict::Skip("no hat sets an email".into()),
-        ));
+        return Ok(check(name, Verdict::Skip("no hat sets an email".into())));
     };
 
     let dir = tempfile::tempdir()?;

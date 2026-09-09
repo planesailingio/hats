@@ -14,10 +14,10 @@ use indexmap::IndexMap;
 
 use crate::app::App;
 use crate::cli::InitArgs;
+use crate::config::hat::{HatSpec, IdentitySpec, KubeSpec};
 use crate::config::local::{
     BitwardenConfig, EnvelopeConfig, EnvelopeMethod, LocalConfig, ProviderKind,
 };
-use crate::config::hat::{IdentitySpec, KubeSpec, HatSpec};
 use crate::config::repo::RepoConfig;
 
 /// Default clone URL. Overridable with `--repo`, and asked for interactively.
@@ -152,11 +152,10 @@ fn ask_hats(app: &mut App, identity: &IdentitySpec) -> Result<IndexMap<String, H
     loop {
         n += 1;
         if n > 1 {
-            let more = app.ui.prompter.confirm(
-                &format!("hat.add.{n}"),
-                "Add another hat?",
-                false,
-            )?;
+            let more =
+                app.ui
+                    .prompter
+                    .confirm(&format!("hat.add.{n}"), "Add another hat?", false)?;
             if !more {
                 break;
             }
@@ -166,11 +165,7 @@ fn ask_hats(app: &mut App, identity: &IdentitySpec) -> Result<IndexMap<String, H
         let name = app
             .ui
             .prompter
-            .text(
-                &format!("hat.{n}.name"),
-                "Profile name",
-                Some(default_name),
-            )?
+            .text(&format!("hat.{n}.name"), "Profile name", Some(default_name))?
             .trim()
             .to_string();
 
@@ -469,16 +464,18 @@ mod tests {
     fn some_if_any_drops_an_all_blank_block() {
         let empty = KubeSpec::default();
         assert!(
-            some_if_any(empty, |k: &KubeSpec| k.context.is_some() || k.isolate.is_some())
-                .is_none()
+            some_if_any(empty, |k: &KubeSpec| k.context.is_some()
+                || k.isolate.is_some())
+            .is_none()
         );
         let filled = KubeSpec {
             context: Some("c".into()),
             isolate: None,
         };
         assert!(
-            some_if_any(filled, |k: &KubeSpec| k.context.is_some() || k.isolate.is_some())
-                .is_some()
+            some_if_any(filled, |k: &KubeSpec| k.context.is_some()
+                || k.isolate.is_some())
+            .is_some()
         );
     }
 

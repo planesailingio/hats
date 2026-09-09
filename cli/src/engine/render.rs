@@ -15,9 +15,9 @@ use minijinja::{Environment, Value, context};
 use serde::Serialize;
 
 use crate::config::Config;
+use crate::hat::emit::sh_quote;
 use crate::model::ManagedFile;
 use crate::platform::Platform;
-use crate::hat::emit::sh_quote;
 use crate::secrets::store::{Secrets, placeholder};
 
 /// Whether templates see real secret values or placeholders.

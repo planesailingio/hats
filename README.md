@@ -421,6 +421,7 @@ behind.
 ## Developing
 
 ```sh
+cargo fmt --all             # CI fails on --check, so run this before pushing
 cargo test                  # unit, snapshot and integration tests
 cargo clippy --all-targets --all-features -- -D warnings
 hats lint                   # manifest, templates, hats, shell scripts

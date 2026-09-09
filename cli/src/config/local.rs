@@ -10,7 +10,7 @@ use std::path::Path;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::config::hat::{IdentitySpec, HatSpec};
+use crate::config::hat::{HatSpec, IdentitySpec};
 use crate::error::ConfigError;
 
 const HEADER: &str = "\

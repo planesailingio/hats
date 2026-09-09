@@ -62,8 +62,10 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
     if plan.aws_config.is_some() {
         match aws::isolate(&platform.home, &name) {
             Ok((config, credentials)) => {
-                plan.set
-                    .insert("AWS_CONFIG_FILE".into(), config.to_string_lossy().into_owned());
+                plan.set.insert(
+                    "AWS_CONFIG_FILE".into(),
+                    config.to_string_lossy().into_owned(),
+                );
                 plan.set.insert(
                     "AWS_SHARED_CREDENTIALS_FILE".into(),
                     credentials.to_string_lossy().into_owned(),

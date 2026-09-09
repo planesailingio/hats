@@ -4,8 +4,8 @@
 //! has to know which half a value came from.
 
 pub mod condition;
-pub mod local;
 pub mod hat;
+pub mod local;
 pub mod repo;
 
 use std::collections::BTreeSet;
@@ -14,8 +14,8 @@ use indexmap::IndexMap;
 
 use crate::error::ConfigError;
 use crate::paths::HatsPaths;
-use local::LocalConfig;
 use hat::{HatSpec, ResolvedHat};
+use local::LocalConfig;
 use repo::RepoConfig;
 
 /// The manifest file inside the dotfiles repo.

@@ -125,8 +125,7 @@ fn show(app: &App, cfg: &Config, name: &str, json: bool) -> Result<()> {
 
 fn current(app: &App, cfg: &Config, summary: bool) -> Result<()> {
     let Some(name) = active_hat() else {
-        app.ui
-            .say("no hat on in this shell. Run `hat <name>`.");
+        app.ui.say("no hat on in this shell. Run `hat <name>`.");
         return Ok(());
     };
 

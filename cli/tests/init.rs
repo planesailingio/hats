@@ -120,7 +120,7 @@ impl Env {
             .arg("--allow-mismatch")
             // Never inherit the developer's own hat state into a test.
             .env_remove("HATS_HAT")
-                        .env_remove("HATS_HOME")
+            .env_remove("HATS_HOME")
             .env_remove("HATS_DEV");
         c
     }

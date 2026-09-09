@@ -454,8 +454,7 @@ acme:
         let mut hats = fixture();
         let before = all_env_keys(&hats, None);
         assert!(!before.contains("NEW_TOKEN"));
-        hats
-            .get_mut("acme")
+        hats.get_mut("acme")
             .unwrap()
             .env
             .insert("NEW_TOKEN".into(), EnvValue::Literal("x".into()));

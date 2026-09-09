@@ -68,8 +68,7 @@ fn seed(target: &Path, base: Option<PathBuf>) -> Result<PathBuf> {
                 .with_context(|| format!("seeding {} from {}", target.display(), b.display()))?;
         }
         None => {
-            std::fs::write(target, "")
-                .with_context(|| format!("creating {}", target.display()))?;
+            std::fs::write(target, "").with_context(|| format!("creating {}", target.display()))?;
         }
     }
     owner_only(target)?;

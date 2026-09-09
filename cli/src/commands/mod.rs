@@ -3,9 +3,9 @@
 
 pub mod doctor;
 pub mod env;
+pub mod hat;
 pub mod init;
 pub mod plan;
-pub mod hat;
 pub mod secrets;
 pub mod selftest;
 pub mod tools;
