@@ -9,15 +9,12 @@
 # Credentials:
 #   The `tap` job pushes to planesailingio/homebrew-tools, which the default
 #   GITHUB_TOKEN cannot do (it is scoped to this repository only). It mints a
-#   short-lived installation token for the org's tap GitHub App instead, from
-#   two org-level values shared with the tool repositories:
-#     vars.TAP_APP_ID              — the app's App ID or client ID (not secret)
+#   short-lived installation token for the all-ci-workflows GitHub App instead,
+#   from two repository values:
+#     vars.TAP_APP_ID              — the app's client ID (not secret)
 #     secrets.TAP_APP_PRIVATE_KEY  — the app's private key (.pem contents)
-#   The app is installed on homebrew-tools only, with "Contents: read and
-#   write". This repository must be in the "Selected repositories" list on both
-#   org values, alongside moss and twig.
-#
-#   App: all-ci-workflows (client id Iv23lio9RIHPFxKIbCCU).
+#   Set the same way on moss and twig. Rotate by generating a new private key on
+#   the app's settings page and replacing the secret in each repository.
 #
 # Re-running the tap alone: Actions -> Release -> Run workflow -> version.
 # See docs/releasing.md for the release procedure and the dry run.
@@ -168,7 +165,7 @@ jobs:
         if: ${{ failure() && steps.tap-token.outcome == 'failure' }}
         run: |
           echo "::error::Could not mint an installation token for planesailingio/homebrew-tools."
-          echo "::error::'Not Found ... get-a-repository-installation' means the tap GitHub App is not installed on homebrew-tools (org settings -> GitHub Apps -> the app -> Install App / Configure -> add homebrew-tools). A JWT or signature error means TAP_APP_ID and TAP_APP_PRIVATE_KEY do not belong to the same app, or that hats is not in their Selected repositories list."
+          echo "::error::'Not Found ... get-a-repository-installation' means the all-ci-workflows GitHub App is not installed on homebrew-tools (org settings -> GitHub Apps -> the app -> Configure -> add homebrew-tools). A JWT or signature error means this repository's TAP_APP_ID and TAP_APP_PRIVATE_KEY do not belong to the same app."
           exit 1
       - name: Render Formula/hats.rb and push to planesailingio/homebrew-tools
         env:

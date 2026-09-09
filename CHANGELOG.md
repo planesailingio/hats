@@ -98,6 +98,5 @@ Bitwarden fetch script and four hand-written zsh profile files.
 - This repository starts from a fresh history. The previous dotfiles repo had a
   GitHub personal access token committed in `2a46f4c`; nothing from that history
   is carried over here. Revoke that token on GitHub if it is still live.
-- The tap job reads org-level `TAP_APP_ID` and `TAP_APP_PRIVATE_KEY`, so `hats`
-  must be in both secrets' selected-repositories list alongside `moss` and
-  `twig`.
+- The tap job authenticates as the `all-ci-workflows` GitHub App, using this
+  repository's `TAP_APP_ID` variable and `TAP_APP_PRIVATE_KEY` secret.

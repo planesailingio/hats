@@ -50,19 +50,26 @@ tool (moss, twig, gannet) hand-rolls the matrix, and hats follows that.
 The `tap` job pushes to a different repository, which the default
 `GITHUB_TOKEN` cannot do: it is scoped to the repository the workflow runs in,
 and no setting extends it. The job instead mints a one-hour installation token
-for a GitHub App owned by the `planesailingio` org, using
-`actions/create-github-app-token`, and passes it to the script as `GH_TOKEN`.
+for the `all-ci-workflows` GitHub App using `actions/create-github-app-token`,
+and passes it to the script as `GH_TOKEN`.
 
-The app (`all-ci-workflows`, client id `Iv23lio9RIHPFxKIbCCU`) already exists
-for `moss` and `twig`. To let this repository use it:
+The app is `all-ci-workflows`, the same one `moss` and `twig` use. Each
+repository carries its own copy of the credentials:
 
-1. Org Settings → Secrets and variables → Actions. Open the variable
-   `TAP_APP_ID` and the secret `TAP_APP_PRIVATE_KEY`, and add `hats` to each
-   one's "Selected repositories" list.
-2. Confirm the app is still installed on `homebrew-tools` (Org Settings →
-   GitHub Apps → the app → Configure). Creating an app does not install it, and
-   without the installation every tap push fails with `Not Found` on the
-   installation lookup.
+- **Variable** `TAP_APP_ID` — the app's client ID, `Iv23lio9RIHPFxKIbCCU`.
+- **Secret** `TAP_APP_PRIVATE_KEY` — the full `.pem` contents, BEGIN and END
+  lines included.
+
+Both are already set on this repository. Set them elsewhere with:
+
+```sh
+gh variable set TAP_APP_ID --repo planesailingio/<repo> --body Iv23lio9RIHPFxKIbCCU
+gh secret set TAP_APP_PRIVATE_KEY --repo planesailingio/<repo> < path/to/key.pem
+```
+
+The app must stay installed on `homebrew-tools`. Creating an app does not
+install it, and without the installation every tap push fails with `Not Found`
+on the installation lookup.
 
 Commits pushed this way are authored by the app's bot user.
 
