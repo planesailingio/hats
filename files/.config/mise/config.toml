@@ -1,0 +1,12 @@
+# mise — global runtime versions. Managed by chezmoi.
+# Replaces loose brew python@3.8/3.9/3.11 and any nvm/pyenv. Pin per-project with a local .mise.toml.
+# NOTE: mise does NOT parse `required_version` from Terraform HCL — use tenv for that (see README).
+
+[tools]
+python = ["3.12", "3.11"]
+node = "lts"
+go = "latest"
+
+[settings]
+# Ask before running tasks/hooks defined in project configs (safer for cloned repos).
+experimental = true

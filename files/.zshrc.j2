@@ -1,0 +1,148 @@
+# ~/.zshrc — interactive shell config. Managed by hats.
+#
+# Client context (identity, cloud, kube, tokens) is NOT here: it lives in
+# ~/.hats/config.yaml and is applied per shell by `profile <name>`. Secrets live
+# in ~/.hats/secrets.yaml, so shells stay offline and instant without this file
+# carrying any plaintext.
+
+# ── History ───────────────────────────────────────────────────────────────────
+HISTFILE=~/.zsh_history
+HISTSIZE=100000
+SAVEHIST=100000
+setopt HIST_IGNORE_ALL_DUPS HIST_REDUCE_BLANKS SHARE_HISTORY INC_APPEND_HISTORY
+setopt AUTO_CD INTERACTIVE_COMMENTS
+bindkey -e   # Emacs-style line editing, explicit (don't guess from $EDITOR)
+
+# ── Completions ───────────────────────────────────────────────────────────────
+# Homebrew-provided completion functions.
+fpath=({{ brew_prefix }}/share/zsh/site-functions $fpath)
+autoload -Uz compinit && compinit -C
+zstyle ':completion:*' menu no                       # fzf-tab handles the menu
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'
+zstyle ':fzf-tab:*' fzf-flags --color=fg:1,fg+:2 --bind=tab:accept
+
+# ── fzf keybindings + completion (must precede plugins) ───────────────────────
+# fzf's own keybindings have to be in place BEFORE fzf-tab loads, or fzf-tab's
+# Tab binding is overwritten. Guarded so re-sourcing this file cannot undo it.
+if [[ -z "${_FZF_INIT_DONE:-}" ]] && command -v fzf >/dev/null 2>&1; then
+  source <(fzf --zsh)
+  typeset -g _FZF_INIT_DONE=1
+fi
+
+# ── Plugins (order matters: syntax-highlighting must be last) ─────────────────
+source {{ brew_prefix }}/share/fzf-tab/fzf-tab.zsh 2>/dev/null
+source {{ brew_prefix }}/share/zsh-autosuggestions/zsh-autosuggestions.zsh 2>/dev/null
+source {{ brew_prefix }}/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh 2>/dev/null
+
+# Tab accepts the inline history autosuggestion when one is showing ($POSTDISPLAY
+# holds its text); otherwise Tab does normal fzf-tab completion. → still works too.
+_tab_accept_or_complete() {
+  if [[ -n "$POSTDISPLAY" ]]; then
+    zle autosuggest-accept
+  else
+    zle fzf-tab-complete
+  fi
+}
+zle -N _tab_accept_or_complete
+bindkey '^I' _tab_accept_or_complete
+
+# Option+Backspace deletes one path/word segment (back to the previous / - . _ = :), not
+# the whole string. macOS terminals send ESC DEL for Option+Backspace, which zsh already
+# maps to backward-kill-word, but the default WORDCHARS counts / - . _ as word chars so it
+# would eat an entire /usr/local/bin in one go. Scoping WORDCHARS to this widget leaves
+# Ctrl+W (kill whole shell word) with its normal behaviour.
+_backward_kill_segment() {
+  local WORDCHARS=''
+  zle backward-kill-word
+}
+zle -N _backward_kill_segment
+bindkey '^[^?' _backward_kill_segment   # Option+Backspace (ESC DEL): iTerm2, VS Code, Terminal.app w/ Option-as-Meta
+bindkey '^[^H' _backward_kill_segment   # Option+Backspace when the terminal sends ESC BS instead
+
+# ── Tool init ─────────────────────────────────────────────────────────────────
+eval "$(starship init zsh)"                          # prompt (kube/aws/terraform aware)
+eval "$(zoxide init zsh)"                             # z / zi jump
+eval "$(mise activate zsh)"                           # runtime versions + env
+eval "$(direnv hook zsh)"                             # per-directory env
+eval "$(atuin init zsh --disable-up-arrow)"          # searchable history (Ctrl-R)
+# (fzf init is above, in the completions block: it must run before fzf-tab)
+
+# tenv (tofu/terraform/terragrunt) shims come from its install dir.
+export PATH="$HOME/.tenv/bin:$PATH"
+
+# ── Aliases ───────────────────────────────────────────────────────────────────
+alias ls='eza --icons --group-directories-first'
+alias ll='eza -lah --icons --git --group-directories-first'
+alias lt='eza --tree --level=2 --icons'
+alias tree='eza --tree --icons'
+alias cat='bat --paging=never'
+alias less='bat'
+alias top='btop'
+alias du='dust'
+alias df='duf'
+alias ps='procs'
+alias ping='gping'
+alias k='kubectl'
+alias tf='tofu'
+alias lg='lazygit'
+alias grep='rg'
+alias find='fd'
+
+# ── kubectl / helm completions ────────────────────────────────────────────────
+command -v kubectl >/dev/null && source <(kubectl completion zsh)
+command -v helm    >/dev/null && source <(helm completion zsh)
+
+# ── Profiles (client context switching) ───────────────────────────────────────
+# Defines `profile <name>` (fzf picker with no argument), its completion, and
+# loads the default profile for this shell. Everything it does is decided by
+# hats from ~/.hats/config.yaml: identity, AWS, per-shell kubeconfig, tokens and
+# the terminal tint. `hats profile list` shows what is available.
+command -v hats >/dev/null 2>&1 && eval "$(hats shell-init zsh)"
+
+
+# ── Global env not tied to a client profile ───────────────────────────────────
+# (Secrets belong in ~/.hats/config.yaml under a profile's env, so they are
+#  per-shell and cleared on switch, rather than global to every terminal.)
+export KICS_QUERIES_PATH={{ brew_prefix }}/opt/kics/share/kics/assets/queries
+
+# ── Branchlet (git worktree helper) ───────────────────────────────────────────
+_branchlet() {
+  local -a commands
+  commands=(
+    'create:Create a new worktree'
+    'list:List all worktrees'
+    'delete:Delete a worktree'
+    'settings:Manage configuration'
+  )
+  _arguments -C \
+    '(-h --help)'{-h,--help}'[Show help]' \
+    '(-v --version)'{-v,--version}'[Show version]' \
+    '(-m --mode)'{-m,--mode}'[Set mode]:mode:(menu create list delete settings)' \
+    '--from-wrapper[Called from shell wrapper]' \
+    '1:command:->command'
+  case "$state" in
+    command) _describe -t commands 'branchlet commands' commands ;;
+  esac
+}
+compdef _branchlet branchlet
+branchlet() {
+  if [ $# -eq 0 ]; then
+    local dir=$(FORCE_COLOR=3 command branchlet --from-wrapper)
+    if [ -n "$dir" ]; then
+      builtin cd "$dir" && echo "Branchlet: Navigated to $(pwd)"
+    fi
+  else
+    command branchlet "$@"
+  fi
+}
+
+# ── Grove ─────────────────────────────────────────────────────────────────────
+export PATH="$HOME/.grove/bin:$PATH"
+
+# ── Pigeonhole completion ─────────────────────────────────────────────────────
+if [ "$funcstack[1]" = "_pigeonhole" ]; then
+    _pigeonhole
+fi
+
+# ── Bug-bounty engagement scaffolding ─────────────────────────────────────────
+[ -f ~/.claude/scripts/hunt.sh ] && source ~/.claude/scripts/hunt.sh

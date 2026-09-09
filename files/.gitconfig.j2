@@ -1,0 +1,50 @@
+# Identity here is only the fallback for tools that ignore the environment.
+# The active profile sets GIT_AUTHOR_*/GIT_COMMITTER_* per shell, and those win.
+[user]
+	email = {{ identity.email }}
+	name = {{ identity.name }}
+{% if secrets.git_signing_key %}
+	signingkey = {{ secrets.git_signing_key }}
+{% endif %}
+
+[alias]
+	root = rev-parse --show-toplevel
+	st = status -sb
+	lg = log --oneline --graph --decorate --all
+	last = log -1 HEAD --stat
+	unstage = restore --staged
+
+[push]
+	autoSetupRemote = true
+
+[init]
+	defaultBranch = main
+
+[pull]
+	rebase = false
+
+[core]
+	pager = delta
+	excludesfile = ~/.gitignore
+
+[interactive]
+	diffFilter = delta --color-only
+
+[delta]
+	navigate = true
+	line-numbers = true
+	side-by-side = true
+	syntax-theme = Catppuccin Mocha
+	hyperlinks = true
+
+[merge]
+	conflictstyle = zdiff3
+
+[diff]
+	colorMoved = default
+
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true

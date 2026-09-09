@@ -1,0 +1,19 @@
+{
+  "name": "dotfiles-test",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "dev",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  // Apply the dotfiles from the mounted repo and run assertions after the container is created.
+  "postCreateCommand": "/workspace/.devcontainer/test.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": ["timonwong.shellcheck", "tamasfe.even-better-toml"],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "zsh"
+      }
+    }
+  }
+}

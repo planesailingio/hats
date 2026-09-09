@@ -1,0 +1,9 @@
+# k9s — managed by chezmoi. Skin file lives in ./skins/catppuccin-mocha.yaml
+k9s:
+  ui:
+    skin: catppuccin-mocha
+    headless: false
+    logoless: false
+    crumbsless: false
+    reactive: true
+  liveViewAutoRefresh: true
