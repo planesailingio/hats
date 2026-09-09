@@ -56,12 +56,23 @@ hooks:
     trigger: once
     script: hooks/install-homebrew.sh
 
-  # Re-runs whenever the Brewfile or the hook itself changes. Declaring the
+  # Re-runs whenever any bundle file or the hook itself changes. Declaring the
   # inputs replaces chezmoi's trick of embedding a sha256sum comment in the
   # script, and covers the hook script too.
+  #
+  # The four bundle files are listed individually, not as the brew/ directory:
+  # onchange hashes each input with fs::read, which fails on a directory and
+  # hashes as "<missing>", so a directory input would never register a change.
+  # A new bundle file must be added here.
   - name: brew-bundle
     phase: after
-    trigger: { onchange: [Brewfile, hooks/brew-bundle.sh] }
+    trigger:
+      onchange:
+        - brew/core.Brewfile
+        - brew/devops.Brewfile
+        - brew/pentest.Brewfile
+        - brew/dev.Brewfile
+        - hooks/brew-bundle.sh
     script: hooks/brew-bundle.sh
 
   - name: zsh-setup

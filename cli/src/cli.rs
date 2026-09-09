@@ -76,7 +76,7 @@ pub enum Command {
     /// Render a managed file and print it, or syntax-check it
     Render(RenderArgs),
 
-    /// Install, check or clean up the Brewfile
+    /// Install, check or clean up a package bundle from brew/
     Brew(BrewArgs),
 
     /// List or run the repo's hooks
@@ -254,20 +254,57 @@ pub struct RenderArgs {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum BrewAction {
-    /// Install everything in the Brewfile
+    /// Install everything in the bundle
     Install,
     /// Report what is missing, install nothing
     Check,
-    /// List (or with --force, remove) what is not in the Brewfile
+    /// List (or with --force, remove) what is not in the bundle
     Cleanup,
     /// Snapshot this machine into Brewfile.new
     Dump,
+}
+
+/// A named set of packages under `brew/`. Every bundle includes `core`, so
+/// `hats brew install devops` means core + devops — you never get a machine
+/// without the base set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum BrewBundle {
+    /// Base set only: shell, git, data wrangling, secrets, comms
+    Core,
+    /// core + clusters, cloud CLIs, IaC, containers
+    Devops,
+    /// core + offensive security and recon
+    Pentest,
+    /// core + languages, service clients, code SAST, release tooling
+    Dev,
+    /// Everything: core + devops + pentest + dev
+    #[default]
+    Full,
+}
+
+impl BrewBundle {
+    /// The bundle files this expands to, in install order. `core` leads every
+    /// list: the composition lives here rather than in the Brewfiles so the
+    /// files stay flat, declarative and free of Ruby include tricks.
+    pub fn files(self) -> &'static [&'static str] {
+        match self {
+            Self::Core => &["core"],
+            Self::Devops => &["core", "devops"],
+            Self::Pentest => &["core", "pentest"],
+            Self::Dev => &["core", "dev"],
+            Self::Full => &["core", "devops", "pentest", "dev"],
+        }
+    }
 }
 
 #[derive(Debug, Args)]
 pub struct BrewArgs {
     #[arg(value_enum)]
     pub action: BrewAction,
+
+    /// Which bundle to act on; defaults to `full`
+    #[arg(value_enum, default_value_t = BrewBundle::Full)]
+    pub bundle: BrewBundle,
 
     /// For cleanup: actually uninstall
     #[arg(long)]
@@ -323,7 +360,7 @@ pub enum SecretsCommand {
     Clear,
     /// Generate a YubiKey PIV key and seal the vault credentials to it
     EnrolYubikey {
-        /// PIV slot to use (retired slots are 82-95)
+        /// Retired PIV slot to use, numbered 1-20 (default: 1)
         #[arg(long)]
         slot: Option<String>,
     },

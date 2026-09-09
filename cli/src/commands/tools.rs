@@ -4,9 +4,10 @@
 //! set of paths, and no `make -C ~/.hats/repo` incantation to remember.
 
 use anyhow::{Context, Result};
+use std::io::Write;
 
 use crate::app::App;
-use crate::cli::{BrewAction, BrewArgs, HooksArgs, HooksCommand, LintArgs};
+use crate::cli::{BrewAction, BrewArgs, BrewBundle, HooksArgs, HooksCommand, LintArgs};
 use crate::engine::render::{RedactMode, RenderContext, Renderer};
 use crate::engine::state::State;
 use crate::model::Filter;
@@ -14,14 +15,49 @@ use crate::secrets::store::Secrets;
 
 // ── brew ────────────────────────────────────────────────────────────────────
 
-pub fn brew(app: &mut App, args: &BrewArgs) -> Result<i32> {
-    let brewfile = app.paths.repo.join("Brewfile");
-    if !brewfile.is_file() {
-        anyhow::bail!("no Brewfile at {}", brewfile.display());
+/// Concatenate a bundle's files into one Brewfile.
+///
+/// `brew bundle` takes a single `--file`, so composition happens here. It
+/// matters most for `cleanup`: pointed at only part of the set, brew would
+/// offer to uninstall everything in the rest.
+fn compose(repo: &std::path::Path, bundle: BrewBundle) -> Result<tempfile::NamedTempFile> {
+    let dir = repo.join("brew");
+    let mut composed = String::new();
+    for name in bundle.files() {
+        let path = dir.join(format!("{name}.Brewfile"));
+        if !path.is_file() {
+            anyhow::bail!("no bundle file at {}", path.display());
+        }
+        let body = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        composed.push_str(&format!("# ── {name} ──────────────────────────────\n"));
+        composed.push_str(&body);
+        composed.push('\n');
     }
+
+    let mut tmp = tempfile::Builder::new()
+        .prefix("hats-bundle-")
+        .suffix(".Brewfile")
+        .tempfile()
+        .context("creating a temporary Brewfile")?;
+    tmp.write_all(composed.as_bytes())
+        .context("writing the composed Brewfile")?;
+    tmp.flush().context("writing the composed Brewfile")?;
+    Ok(tmp)
+}
+
+pub fn brew(app: &mut App, args: &BrewArgs) -> Result<i32> {
     which::which("brew").context("brew is not installed. See https://brew.sh")?;
 
-    let file = brewfile.to_string_lossy().into_owned();
+    // Held for the lifetime of the brew call: dropping it deletes the file.
+    let composed = compose(&app.paths.repo, args.bundle)?;
+    let file = composed.path().to_string_lossy().into_owned();
+
+    // A dump is a snapshot of the machine, not of a bundle, so it lands beside
+    // the repo for a human to diff and split by hand.
+    let dump_target = app.paths.repo.join("Brewfile.new");
+    let dump_file = dump_target.to_string_lossy().into_owned();
+
     let argv: Vec<String> = match args.action {
         BrewAction::Install => vec!["bundle".into(), "install".into(), format!("--file={file}")],
         BrewAction::Check => vec![
@@ -41,13 +77,15 @@ pub fn brew(app: &mut App, args: &BrewArgs) -> Result<i32> {
             "bundle".into(),
             "dump".into(),
             "--describe".into(),
-            format!("--file={file}.new"),
+            format!("--file={dump_file}"),
         ],
     };
 
     if args.action == BrewAction::Cleanup && args.force {
-        app.ui
-            .warn("this uninstalls everything not in the Brewfile");
+        app.ui.warn(format!(
+            "this uninstalls everything not in the {:?} bundle",
+            args.bundle
+        ));
         if !app
             .ui
             .prompter
@@ -64,7 +102,7 @@ pub fn brew(app: &mut App, args: &BrewArgs) -> Result<i32> {
 
     if args.action == BrewAction::Dump && status.success() {
         app.ui.say(format!(
-            "Wrote {file}.new — diff it before replacing; dump pulls in cruft."
+            "Wrote {dump_file} — diff it before splitting into brew/; dump pulls in cruft."
         ));
     }
     Ok(if status.success() { 0 } else { 1 })
@@ -322,5 +360,74 @@ mod tests {
         .collect();
         let unique: std::collections::BTreeSet<_> = seen.iter().collect();
         assert_eq!(unique.len(), 4);
+    }
+
+    #[test]
+    fn every_bundle_starts_with_core() {
+        // The whole point of the split: no bundle installs without the base set.
+        for b in [
+            BrewBundle::Core,
+            BrewBundle::Devops,
+            BrewBundle::Pentest,
+            BrewBundle::Dev,
+            BrewBundle::Full,
+        ] {
+            assert_eq!(
+                b.files().first(),
+                Some(&"core"),
+                "{b:?} must lead with core"
+            );
+        }
+    }
+
+    #[test]
+    fn full_is_every_other_bundle_unioned() {
+        // `full` means literally all of it; a new bundle file that nothing
+        // composes into `full` would be unreachable from a full install.
+        let full: std::collections::BTreeSet<_> = BrewBundle::Full.files().iter().collect();
+        for b in [
+            BrewBundle::Core,
+            BrewBundle::Devops,
+            BrewBundle::Pentest,
+            BrewBundle::Dev,
+        ] {
+            for f in b.files() {
+                assert!(full.contains(f), "{f} is in {b:?} but not in full");
+            }
+        }
+    }
+
+    #[test]
+    fn a_bundle_never_lists_a_file_twice() {
+        // A duplicate would concatenate the same entries into the composed
+        // Brewfile twice.
+        for b in [
+            BrewBundle::Core,
+            BrewBundle::Devops,
+            BrewBundle::Pentest,
+            BrewBundle::Dev,
+            BrewBundle::Full,
+        ] {
+            let unique: std::collections::BTreeSet<_> = b.files().iter().collect();
+            assert_eq!(unique.len(), b.files().len(), "{b:?} repeats a file");
+        }
+    }
+
+    #[test]
+    fn compose_concatenates_in_order_and_errors_on_a_missing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("brew");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("core.Brewfile"), "brew \"jq\"\n").unwrap();
+
+        // devops is not written yet: composing it must fail loudly rather than
+        // quietly installing core alone.
+        assert!(compose(tmp.path(), BrewBundle::Devops).is_err());
+
+        std::fs::write(dir.join("devops.Brewfile"), "brew \"helm\"\n").unwrap();
+        let composed = compose(tmp.path(), BrewBundle::Devops).unwrap();
+        let body = std::fs::read_to_string(composed.path()).unwrap();
+        assert!(body.contains("jq") && body.contains("helm"));
+        assert!(body.find("jq").unwrap() < body.find("helm").unwrap());
     }
 }
