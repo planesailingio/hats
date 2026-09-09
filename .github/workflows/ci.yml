@@ -28,7 +28,15 @@ jobs:
         # tests skip that check when zsh is absent, so install it rather than
         # let the most valuable assertion quietly not run.
         shell: bash
-        run: command -v zsh >/dev/null || sudo apt-get update && sudo apt-get install -y zsh
+        run: |
+          # `A || B && C` parses as `(A || B) && C`, so an inline one-liner runs
+          # apt-get on macOS too. Be explicit.
+          if command -v zsh >/dev/null; then
+            echo "zsh already present: $(command -v zsh)"
+          else
+            sudo apt-get update
+            sudo apt-get install -y zsh
+          fi
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy
