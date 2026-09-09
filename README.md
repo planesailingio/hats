@@ -15,14 +15,14 @@
 
 ## TL;DR
 
-**The problem.** `kubectl config use-context` doesn't change your shell — it
+**The problem.** Tools like `git`, `kubectl`, `k9s`, `aws` and `docker` doesn't change your shell — it
 edits a file that every terminal on the machine shares. So does
 `git config --global`. Switch client and you're updating four different
 mechanisms by hand, then checking all four before you type anything dangerous.
 
-**What hats does.** `hat acme` sets git identity, signing key, AWS
-credentials, kube context, tokens, toolchain versions and the terminal's
-background tint — in *that shell only*. The window next door doesn't move.
+**What hats does.** `hat acme` sets git identity, signing keys, AWS
+credentials, kube configs, tokens, env vars, toolchain versions and the terminal's
+background tint — in *that shell only*.
 
 **The other half.** The dotfiles behind it are managed like infrastructure:
 `hats plan` shows a line-level diff of what would change in your home directory,
@@ -37,16 +37,16 @@ curl -fsSL https://planesailingio.github.io/hats/install.sh | sh
 ## The problem
 
 Every tool on your machine remembers who you are. No two of them agree on where
-to keep the answer, or on how far it reaches.
+to keep the answer.
 
-| Tool | Where its answer lives | Reaches |
-|---|---|---|
-| git | `~/.gitconfig` | every terminal |
-| kubectl | `~/.kube/config` | every terminal |
-| AWS CLI | `~/.aws/config` and `~/.aws/credentials` | every terminal |
-| npm, pip | `~/.npmrc`, a configured index URL | every terminal |
-| node, python | whatever the version manager last made default | every terminal |
-| API tokens | wherever you last exported them | this shell, until you close it |
+| Tool         | Where its answer lives                         | Reaches                        |
+| ------------ | ---------------------------------------------- | ------------------------------ |
+| git          | `~/.gitconfig`                                 | every terminal                 |
+| kubectl      | `~/.kube/config`                               | every terminal                 |
+| AWS CLI      | `~/.aws/config` and `~/.aws/credentials`       | every terminal                 |
+| npm, pip     | `~/.npmrc`, a configured index URL             | every terminal                 |
+| node, python | whatever the version manager last made default | every terminal                 |
+| API tokens   | wherever you last exported them                | this shell, until you close it |
 
 Three things follow from that table, and all three are the same bug:
 
@@ -62,7 +62,7 @@ Three things follow from that table, and all three are the same bug:
 
 Which leaves the actual daily cost — not the incident, the vigilance. Before
 anything with consequences: `git config user.email`, `echo $AWS_PROFILE`,
-`kubectl config current-context`. A checklist per switch, many switches a day,
+`kubectl config current-context`. A checklist per switch, with potentially many switches a day,
 and every checklist gets skipped eventually.
 
 The workarounds each solve a quarter of it. `includeIf gitdir:` handles git and
@@ -291,13 +291,13 @@ is the implementation.
 
 Five of them cover almost every day:
 
-| | |
-|---|---|
-| `hat [name]` | Switch this shell. No name gives you a picker. |
-| `hats plan` | What would change in your home directory |
-| `hats apply` | Do it |
-| `hats secrets fetch` | Pull your tokens down from the vault |
-| `hats doctor` | Check this machine has what hats needs |
+|                      |                                                |
+| -------------------- | ---------------------------------------------- |
+| `hat [name]`         | Switch this shell. No name gives you a picker. |
+| `hats plan`          | What would change in your home directory       |
+| `hats apply`         | Do it                                          |
+| `hats secrets fetch` | Pull your tokens down from the vault           |
+| `hats doctor`        | Check this machine has what hats needs         |
 
 <details>
 <summary><b>The rest</b> — hats, packages, maintenance, authoring</summary>
@@ -306,39 +306,39 @@ Five of them cover almost every day:
 
 **Hats**
 
-| | |
-|---|---|
-| `hats hat list` | Every hat, active one marked |
-| `hats hat show <name>` | One hat with its inheritance folded in |
-| `hats hat current` | Which hat this shell is wearing |
-| `hats env <name>` | The shell code a switch would run, printed not executed |
+|                        |                                                         |
+| ---------------------- | ------------------------------------------------------- |
+| `hats hat list`        | Every hat, active one marked                            |
+| `hats hat show <name>` | One hat with its inheritance folded in                  |
+| `hats hat current`     | Which hat this shell is wearing                         |
+| `hats env <name>`      | The shell code a switch would run, printed not executed |
 
 **Dotfiles**
 
-| | |
-|---|---|
-| `hats diff` | The diff alone, without the hook plan |
-| `hats render <file>` | Render one template and print it, or syntax-check it |
-| `hats hooks` | List the repo's hooks, or run one by name |
-| `hats lint` | Check the manifest, templates, hats and shell scripts |
+|                      |                                                       |
+| -------------------- | ----------------------------------------------------- |
+| `hats diff`          | The diff alone, without the hook plan                 |
+| `hats render <file>` | Render one template and print it, or syntax-check it  |
+| `hats hooks`         | List the repo's hooks, or run one by name             |
+| `hats lint`          | Check the manifest, templates, hats and shell scripts |
 
 **Packages** — see [bundles](#package-bundles)
 
-| | |
-|---|---|
+|                              |                                    |
+| ---------------------------- | ---------------------------------- |
 | `hats brew install [bundle]` | Install a bundle (default: `full`) |
-| `hats brew check <bundle>` | What's missing; installs nothing |
-| `hats brew cleanup <bundle>` | Offer to remove what isn't in it |
+| `hats brew check <bundle>`   | What's missing; installs nothing   |
+| `hats brew cleanup <bundle>` | Offer to remove what isn't in it   |
 
 **Maintenance**
 
-| | |
-|---|---|
-| `hats update` | Move the repo to the tag matching this binary |
-| `hats version` | Binary tag, repo tag, and whether they agree |
-| `hats test` | Prove the switcher works: real commits, real shells |
-| `hats shell-init zsh` | The `hat` function and its completion |
-| `hats completions <shell>` | Completion script for hats itself |
+|                            |                                                     |
+| -------------------------- | --------------------------------------------------- |
+| `hats update`              | Move the repo to the tag matching this binary       |
+| `hats version`             | Binary tag, repo tag, and whether they agree        |
+| `hats test`                | Prove the switcher works: real commits, real shells |
+| `hats shell-init zsh`      | The `hat` function and its completion               |
+| `hats completions <shell>` | Completion script for hats itself                   |
 
 </details>
 
@@ -349,13 +349,13 @@ Everything takes `--help`.
 Packages live in `brew/` as four files rather than one sprawling Brewfile. Every
 bundle includes `core`, so you never end up on a machine without the base set.
 
-| Bundle | What you get | For |
-|---|---|---|
-| `core` | shell, git, JSON/YAML/HTTP, system inspection, secrets, comms | any machine, whatever the job |
-| `devops` | core + clusters, cloud CLIs, IaC, containers, infra scanners | infrastructure you operate |
-| `pentest` | core + nmap, rustscan, sqlmap, Burp, sslscan | a target you're testing |
-| `dev` | core + languages, service clients, code SAST, release tooling | code you write |
-| `full` | everything above | the default |
+| Bundle    | What you get                                                  | For                           |
+| --------- | ------------------------------------------------------------- | ----------------------------- |
+| `core`    | shell, git, JSON/YAML/HTTP, system inspection, secrets, comms | any machine, whatever the job |
+| `devops`  | core + clusters, cloud CLIs, IaC, containers, infra scanners  | infrastructure you operate    |
+| `pentest` | core + nmap, rustscan, sqlmap, Burp, sslscan                  | a target you're testing       |
+| `dev`     | core + languages, service clients, code SAST, release tooling | code you write                |
+| `full`    | everything above                                              | the default                   |
 
 ```sh
 hats brew install devops    # core + devops
@@ -404,15 +404,15 @@ tell you.
 
 ## Where things live
 
-| Path | What |
-|---|---|
-| `hats.yaml` | Which files exist, how they group, which hooks run. Generic: no names, no emails, no secrets. |
-| `files/` | The dotfiles themselves, mirroring `$HOME`. A `.j2` suffix means it's a template. |
-| `brew/` | The four package bundles. |
-| `hooks/` | Setup scripts (Homebrew, the bundles, zsh, macOS defaults, the Dock). |
-| `cli/` | The `hats` source, in Rust. |
-| `~/.hats/config.yaml` | **Your** hats, identities and endpoints. Machine-local, never in git. |
-| `~/.hats/secrets.yaml` | Fetched tokens, mode 0600. |
+| Path                   | What                                                                                          |
+| ---------------------- | --------------------------------------------------------------------------------------------- |
+| `hats.yaml`            | Which files exist, how they group, which hooks run. Generic: no names, no emails, no secrets. |
+| `files/`               | The dotfiles themselves, mirroring `$HOME`. A `.j2` suffix means it's a template.             |
+| `brew/`                | The four package bundles.                                                                     |
+| `hooks/`               | Setup scripts (Homebrew, the bundles, zsh, macOS defaults, the Dock).                         |
+| `cli/`                 | The `hats` source, in Rust.                                                                   |
+| `~/.hats/config.yaml`  | **Your** hats, identities and endpoints. Machine-local, never in git.                         |
+| `~/.hats/secrets.yaml` | Fetched tokens, mode 0600.                                                                    |
 
 Hats are deliberately not in this repo. It ships defaults anyone can use;
 who you work for stays on your laptop.

@@ -50,12 +50,6 @@ files:
   - { path: .config/hats/vscode-extensions.list, group: editor }
 
 hooks:
-  # Covers the path where someone runs `hats init` without the bootstrap script.
-  - name: install-homebrew
-    phase: before
-    trigger: once
-    script: hooks/install-homebrew.sh
-
   # Re-runs whenever any bundle file or the hook itself changes. Declaring the
   # inputs replaces chezmoi's trick of embedding a sha256sum comment in the
   # script, and covers the hook script too.

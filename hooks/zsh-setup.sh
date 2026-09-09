@@ -39,8 +39,6 @@ if command -v tenv >/dev/null 2>&1; then
   echo "==> tenv install latest OpenTofu + Terraform"
   tenv tofu install latest >/dev/null 2>&1 || true
   tenv tofu use latest >/dev/null 2>&1 || true
-  tenv tf install latest >/dev/null 2>&1 || true
-  tenv tf use latest >/dev/null 2>&1 || true
 fi
 
 # 5. atuin: import existing shell history once. ────────────────────────────────
