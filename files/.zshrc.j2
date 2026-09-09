@@ -10,6 +10,7 @@ HISTFILE=~/.zsh_history
 HISTSIZE=100000
 SAVEHIST=100000
 setopt HIST_IGNORE_ALL_DUPS HIST_REDUCE_BLANKS SHARE_HISTORY INC_APPEND_HISTORY
+setopt HIST_FIND_NO_DUPS   # cycling back through matches never stops on the same line twice
 setopt AUTO_CD INTERACTIVE_COMMENTS
 bindkey -e   # Emacs-style line editing, explicit (don't guess from $EDITOR)
 
@@ -45,6 +46,24 @@ _tab_accept_or_complete() {
 }
 zle -N _tab_accept_or_complete
 bindkey '^I' _tab_accept_or_complete
+
+# Up/Down search history for entries starting with what has been typed so far,
+# the oh-my-zsh behaviour: with a prefix typed, the first Up lands on the same
+# line zsh-autosuggestions is already showing in grey, and pressing it again
+# cycles back through older matches rather than walking unrelated history. On an
+# empty line they fall back to plain history, as the widget names suggest.
+#
+# zsh-autosuggestions knows both widget names and clears the grey text as the
+# search moves. It re-binds on every precmd, so defining these after it is
+# sourced is fine (that would only matter under ZSH_AUTOSUGGEST_MANUAL_REBIND).
+# atuin is initialised below with --disable-up-arrow, so it leaves these alone.
+autoload -Uz up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey '^[[A' up-line-or-beginning-search     # Up
+bindkey '^[OA' up-line-or-beginning-search     # Up, application cursor mode
+bindkey '^[[B' down-line-or-beginning-search   # Down
+bindkey '^[OB' down-line-or-beginning-search   # Down, application cursor mode
 
 # Option+Backspace deletes one path/word segment (back to the previous / - . _ = :), not
 # the whole string. macOS terminals send ESC DEL for Option+Backspace, which zsh already
@@ -138,11 +157,6 @@ branchlet() {
 
 # ── Grove ─────────────────────────────────────────────────────────────────────
 export PATH="$HOME/.grove/bin:$PATH"
-
-# ── Pigeonhole completion ─────────────────────────────────────────────────────
-if [ "$funcstack[1]" = "_pigeonhole" ]; then
-    _pigeonhole
-fi
 
 # ── Bug-bounty engagement scaffolding ─────────────────────────────────────────
 [ -f ~/.claude/scripts/hunt.sh ] && source ~/.claude/scripts/hunt.sh
