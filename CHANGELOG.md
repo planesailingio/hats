@@ -8,11 +8,60 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.2.0 — 2026-09-09
+
+Packages become bundles you can pick from, and YubiKey enrolment actually works
+end to end.
+
+### Added
+
+- **Package bundles.** The single flat `Brewfile` is now four files under
+  `brew/`: `core`, plus `devops`, `pentest` and `dev`. Every bundle leads with
+  `core`, so no machine ever gets a role set without the base set, and
+  `hats brew install devops` means core + devops. `full` remains the default and
+  means what the old Brewfile meant.
+- **`hats brew <action> [bundle]`.** Install, check, clean up or dump against a
+  named bundle. `brew bundle` takes a single `--file`, so hats concatenates the
+  bundle into one temporary Brewfile before shelling out — which matters most
+  for `cleanup`, since brew pointed at part of the set would offer to uninstall
+  everything in the rest.
+- **`HATS_BREW_BUNDLE`** selects the bundle the `brew-bundle` hook installs on
+  apply, defaulting to `full`. The hook composes for itself rather than calling
+  `hats brew`, because it also has to filter macOS-only entries on Linux.
+- **Prefix history search.** Up and Down now search history for entries starting
+  with what has been typed, the oh-my-zsh behaviour: with a prefix typed, the
+  first Up lands on the line zsh-autosuggestions is already showing in grey.
+  `HIST_FIND_NO_DUPS` stops the cycle offering the same line twice.
+
 ### Changed
 
 - The Homebrew formula now declares `age-plugin-yubikey` as a dependency. hats
   drives it as a subprocess and the age crate resolves it on PATH at call time,
   so it has to be present rather than merely suggested.
+- `hats brew dump` writes `Brewfile.new` beside the repo rather than next to a
+  bundle file. A dump is a snapshot of the machine, not of a bundle, so it is
+  for a human to diff and split by hand.
+- The `brew-bundle` hook's `onchange` inputs list the four bundle files
+  individually rather than the `brew/` directory: `onchange` hashes each input
+  with `fs::read`, which fails on a directory and hashes as `<missing>`, so a
+  directory input would never register a change.
+- The README leads with the problem — where each tool keeps its answer and how
+  far that reaches — and gains a TL;DR, a five-step quick start and an annotated
+  profile example. The full command list moved behind a fold so the five
+  commands you use daily are the ones you see.
+
+### Fixed
+
+- **`hats secrets enrol-yubikey` could not prompt for the PIV PIN.** Capturing
+  the plugin's output left the prompt talking to a pipe, and it failed with "not
+  a terminal". `--generate` now runs with our stdio attached, and the identity is
+  read back afterwards with a second, non-interactive `--identity` call against
+  the same slot.
+- **The default PIV slot was wrong.** `age-plugin-yubikey` numbers the retired
+  slots 1-20 rather than by their hex ids, so the documented default of `82` was
+  never a slot it would accept. The default is now `1`.
+- A stray `_pigeonhole` completion fragment in `.zshrc` ran on every shell start
+  for a tool that is no longer installed.
 
 ## 0.1.0 — 2026-09-09
 
