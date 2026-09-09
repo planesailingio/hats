@@ -8,6 +8,10 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+## 0.3.0 — 2026-09-09
+
+One word for the thing you put on, and AWS isolated the way kube already was.
+
 ### Changed
 
 - **AWS is isolated per hat instead of selected with `AWS_PROFILE`.** Each hat
