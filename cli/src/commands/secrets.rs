@@ -78,11 +78,11 @@ fn fetch(app: &mut App) -> Result<i32> {
         app.paths.secrets.display()
     ));
 
-    // Anything a profile refers to but the vault did not supply.
+    // Anything a hat refers to but the vault did not supply.
     let mut wanted: std::collections::BTreeSet<String> =
         cfg.repo.secrets.required.iter().cloned().collect();
-    for name in cfg.profiles().keys() {
-        if let Ok(p) = cfg.resolve_profile(name) {
+    for name in cfg.hats().keys() {
+        if let Ok(p) = cfg.resolve_hat(name) {
             wanted.extend(p.secret_refs());
         }
     }
@@ -95,7 +95,7 @@ fn fetch(app: &mut App) -> Result<i32> {
     }
 
     app.ui
-        .say("Open a new shell, or run `profile <name>`, to pick them up.");
+        .say("Open a new shell, or run `hat <name>`, to pick them up.");
     Ok(0)
 }
 
@@ -135,8 +135,8 @@ fn status(app: &mut App) -> Result<i32> {
     // Names and whether they hold a value, never the values themselves.
     let mut wanted: std::collections::BTreeSet<String> =
         cfg.repo.secrets.required.iter().cloned().collect();
-    for name in cfg.profiles().keys() {
-        if let Ok(p) = cfg.resolve_profile(name) {
+    for name in cfg.hats().keys() {
+        if let Ok(p) = cfg.resolve_hat(name) {
             wanted.extend(p.secret_refs());
         }
     }

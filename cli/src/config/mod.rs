@@ -5,7 +5,7 @@
 
 pub mod condition;
 pub mod local;
-pub mod profile;
+pub mod hat;
 pub mod repo;
 
 use std::collections::BTreeSet;
@@ -15,7 +15,7 @@ use indexmap::IndexMap;
 use crate::error::ConfigError;
 use crate::paths::HatsPaths;
 use local::LocalConfig;
-use profile::{ProfileSpec, ResolvedProfile};
+use hat::{HatSpec, ResolvedHat};
 use repo::RepoConfig;
 
 /// The manifest file inside the dotfiles repo.
@@ -37,24 +37,24 @@ impl Config {
         Ok(Self { repo, local })
     }
 
-    pub fn profiles(&self) -> &IndexMap<String, ProfileSpec> {
-        &self.local.profiles
+    pub fn hats(&self) -> &IndexMap<String, HatSpec> {
+        &self.local.hats
     }
 
-    pub fn profile_names(&self) -> Vec<String> {
-        self.local.profiles.keys().cloned().collect()
+    pub fn hat_names(&self) -> Vec<String> {
+        self.local.hats.keys().cloned().collect()
     }
 
-    /// Fold a profile's inheritance chain, filling gaps from the machine
+    /// Fold a hat's inheritance chain, filling gaps from the machine
     /// identity.
-    pub fn resolve_profile(&self, name: &str) -> Result<ResolvedProfile, ConfigError> {
-        profile::resolve(name, &self.local.profiles, self.local.identity.as_ref())
+    pub fn resolve_hat(&self, name: &str) -> Result<ResolvedHat, ConfigError> {
+        hat::resolve(name, &self.local.hats, self.local.identity.as_ref())
     }
 
-    /// The unset list emitted before every profile switch: the union of every
-    /// profile's variables, so the previous profile cannot leak into the next.
+    /// The unset list emitted before every hat switch: the union of every
+    /// hat's variables, so the previous hat cannot leak into the next.
     pub fn all_env_keys(&self) -> BTreeSet<String> {
-        profile::all_env_keys(&self.local.profiles, self.local.identity.as_ref())
+        hat::all_env_keys(&self.local.hats, self.local.identity.as_ref())
     }
 
     /// Groups enabled on this machine, honouring the manifest default for any
@@ -71,17 +71,17 @@ impl Config {
     pub fn problems(&self) -> Vec<String> {
         let mut problems = self.repo.group_problems();
 
-        for name in self.local.profiles.keys() {
-            if let Err(e) = self.resolve_profile(name) {
+        for name in self.local.hats.keys() {
+            if let Err(e) = self.resolve_hat(name) {
                 problems.push(e.to_string());
             }
         }
 
-        if let Some(default) = &self.local.hats.default_profile
-            && !self.local.profiles.contains_key(default)
+        if let Some(default) = &self.local.meta.default_hat
+            && !self.local.hats.contains_key(default)
         {
             problems.push(format!(
-                "default_profile is `{default}`, which is not a declared profile"
+                "default_hat is `{default}`, which is not a declared hat"
             ));
         }
 
@@ -94,12 +94,12 @@ impl Config {
                 .iter()
                 .map(String::as_str)
                 .collect();
-            for name in self.local.profiles.keys() {
-                if let Ok(p) = self.resolve_profile(name) {
+            for name in self.local.hats.keys() {
+                if let Ok(p) = self.resolve_hat(name) {
                     for r in p.secret_refs() {
                         if !known.contains(r.as_str()) {
                             problems.push(format!(
-                                "profile `{name}` refers to secret `{r}`, which is not in the repo's secrets.required list"
+                                "hat `{name}` refers to secret `{r}`, which is not in the repo's secrets.required list"
                             ));
                         }
                     }
@@ -149,10 +149,10 @@ mod tests {
     }
 
     #[test]
-    fn problems_report_a_bad_default_profile() {
+    fn problems_report_a_bad_default_hat() {
         let c = config(
             "groups: {}\n",
-            "hats: { default_profile: ghost }\nprofiles:\n  normal: {}\n",
+            "meta: { default_hat: ghost }\nhats:\n  normal: {}\n",
         );
         let problems = c.problems();
         assert!(problems.iter().any(|p| p.contains("ghost")), "{problems:?}");
@@ -162,7 +162,7 @@ mod tests {
     fn problems_report_a_profile_cycle() {
         let c = config(
             "groups: {}\n",
-            "profiles:\n  a: { inherits: b }\n  b: { inherits: a }\n",
+            "hats:\n  a: { inherits: b }\n  b: { inherits: a }\n",
         );
         assert!(
             c.problems()
@@ -175,7 +175,7 @@ mod tests {
     fn problems_flag_a_secret_the_repo_does_not_expect() {
         let c = config(
             "groups: {}\nsecrets:\n  required: [git_signing_key]\n",
-            "profiles:\n  normal:\n    env:\n      TOK: { secret: mystery }\n",
+            "hats:\n  normal:\n    env:\n      TOK: { secret: mystery }\n",
         );
         let problems = c.problems();
         assert!(
@@ -188,7 +188,7 @@ mod tests {
     fn a_clean_pair_has_no_problems() {
         let c = config(
             "groups:\n  shell: { description: s }\nfiles:\n  - { path: .zshrc.j2, group: shell }\n",
-            "profiles:\n  normal: {}\n  work: { inherits: normal }\n",
+            "hats:\n  normal: {}\n  work: { inherits: normal }\n",
         );
         assert_eq!(c.problems(), Vec::<String>::new());
     }
@@ -197,12 +197,12 @@ mod tests {
     fn resolve_and_env_keys_reach_through_the_merged_config() {
         let c = config(
             "groups: {}\n",
-            "identity: { name: Jane, email: r@e.com }\nprofiles:\n  normal: {}\n  work:\n    inherits: normal\n    env: { TOK: x }\n",
+            "identity: { name: Jane, email: r@e.com }\nhats:\n  normal: {}\n  work:\n    inherits: normal\n    env: { TOK: x }\n",
         );
-        let work = c.resolve_profile("work").unwrap();
+        let work = c.resolve_hat("work").unwrap();
         assert_eq!(work.identity.name.as_deref(), Some("Jane"));
         assert!(c.all_env_keys().contains("TOK"));
-        assert_eq!(c.profile_names(), vec!["normal", "work"]);
+        assert_eq!(c.hat_names(), vec!["normal", "work"]);
     }
 
     #[test]

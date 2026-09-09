@@ -5,7 +5,7 @@ pub mod doctor;
 pub mod env;
 pub mod init;
 pub mod plan;
-pub mod profile;
+pub mod hat;
 pub mod secrets;
 pub mod selftest;
 pub mod tools;
@@ -37,8 +37,8 @@ pub fn dispatch(app: &mut App, command: &Command) -> Result<i32> {
             doctor::run(app, args)?;
             Ok(0)
         }
-        Command::Profile(args) => {
-            profile::run(app, args)?;
+        Command::Hat(args) => {
+            hat::run(app, args)?;
             Ok(0)
         }
         Command::Plan(args) => plan::plan(app, args),

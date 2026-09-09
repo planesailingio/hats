@@ -107,7 +107,7 @@ hooks:
     script: hooks/vscode-extensions.sh
 
 secrets:
-  # Advisory: `hats lint` warns when a profile refers to a secret outside this
+  # Advisory: `hats lint` warns when a hat refers to a secret outside this
   # list. The names are keys, not vault item names — discovery is by label, and
   # the mapping lives on the machine.
   required:

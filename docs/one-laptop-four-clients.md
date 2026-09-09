@@ -46,16 +46,16 @@ That's the actual tax. Not the incident, the *vigilance*. Context switching betw
 
 ## One command
 
-So I built the boring thing. A profile, per context, that sets *everything* — git identity, signing key, AWS profile, kube context, tokens, registries, toolchain versions — as environment scoped to a single terminal. Switching looks like this:
+So I built the boring thing. A hat, per context, that sets *everything* — git identity, signing key, AWS profile, kube context, tokens, registries, toolchain versions — as environment scoped to a single terminal. Switching looks like this:
 
 ```sh
-$ profile acme
-⛭ profile: acme  (git=jane.doe@acme.com  aws=acme-aws  kube=acme)
+$ hat acme
+⛭ hat: acme  (git=jane.doe@acme.com  aws=acme-aws  kube=acme)
 ```
 
 That's the whole interface. One command, and one line back telling you who you now are. Run it with no argument and you get a fuzzy-searchable picker. Run it in the pane next door and that pane becomes someone else, and the two never interfere — the property the entire design rests on is that **a context switch in one terminal cannot leak into another**.
 
-The other half is making the state impossible to ignore. The active profile sits in my prompt, and the kube context is coloured by how much trouble it can cause: green for dev, yellow for staging, and production is bright red with a warning sign. You stop reading it consciously after a week and start noticing it peripherally, which is the whole point. It's a hardware interlock for your hands.
+The other half is making the state impossible to ignore. The active hat sits in my prompt, and the kube context is coloured by how much trouble it can cause: green for dev, yellow for staging, and production is bright red with a warning sign. You stop reading it consciously after a week and start noticing it peripherally, which is the whole point. It's a hardware interlock for your hands.
 
 The checking ritual is gone. Not shortened — gone. The answer to "who am I right now" is printed at the front of every prompt, per terminal, and I haven't run the checklist in months.
 

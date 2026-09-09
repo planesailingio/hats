@@ -17,7 +17,7 @@ use serde::Serialize;
 use crate::config::Config;
 use crate::model::ManagedFile;
 use crate::platform::Platform;
-use crate::profile::emit::sh_quote;
+use crate::hat::emit::sh_quote;
 use crate::secrets::store::{Secrets, placeholder};
 
 /// Whether templates see real secret values or placeholders.
@@ -46,8 +46,8 @@ pub struct RenderContext {
     pub version: String,
     pub identity: IdentityView,
     pub secrets: BTreeMap<String, String>,
-    pub profile_names: Vec<String>,
-    pub default_profile: String,
+    pub hat_names: Vec<String>,
+    pub default_hat: String,
     pub machine: BTreeMap<String, String>,
 }
 
@@ -66,14 +66,14 @@ impl RenderContext {
         files_dir: &Path,
         mode: RedactMode,
     ) -> Self {
-        // Every key any profile refers to is present, so `{{ secrets.x }}` is
+        // Every key any hat refers to is present, so `{{ secrets.x }}` is
         // never an undefined-variable error: an unfetched secret renders empty,
         // and the plan header says how many are missing.
         let mut keys: std::collections::BTreeSet<String> =
             secrets.keys().iter().map(|s| (*s).to_string()).collect();
         keys.extend(cfg.repo.secrets.required.iter().cloned());
-        for name in cfg.profiles().keys() {
-            if let Ok(p) = cfg.resolve_profile(name) {
+        for name in cfg.hats().keys() {
+            if let Ok(p) = cfg.resolve_hat(name) {
                 keys.extend(p.secret_refs());
             }
         }
@@ -117,8 +117,8 @@ impl RenderContext {
             version: crate::repo::BINARY_VERSION.to_string(),
             identity,
             secrets: values,
-            profile_names: cfg.profile_names(),
-            default_profile: cfg.local.default_profile(),
+            hat_names: cfg.hat_names(),
+            default_hat: cfg.local.default_hat(),
             machine: cfg.local.machine.clone().into_iter().collect(),
         }
     }
@@ -136,8 +136,8 @@ impl RenderContext {
             version => self.version,
             identity => &self.identity,
             secrets => &self.secrets,
-            profile_names => &self.profile_names,
-            default_profile => self.default_profile,
+            hat_names => &self.hat_names,
+            default_hat => self.default_hat,
             machine => &self.machine,
         }
     }
@@ -229,7 +229,7 @@ mod tests {
             local: serde_yaml_ng::from_str::<LocalConfig>(
                 "identity: { name: Jane, email: jane@example.com }\n\
                  machine: { hostname_alias: mbp }\n\
-                 profiles:\n  normal: {}\n  work:\n    env:\n      TOK: { secret: jira_token }\n",
+                 hats:\n  normal: {}\n  work:\n    env:\n      TOK: { secret: jira_token }\n",
             )
             .unwrap(),
         }
@@ -351,7 +351,7 @@ mod tests {
         );
     }
 
-    /// A key referenced by a profile but never fetched must still resolve, or
+    /// A key referenced by a hat but never fetched must still resolve, or
     /// every template would break the moment a secret is added.
     #[test]
     fn an_unfetched_secret_renders_empty_rather_than_failing() {

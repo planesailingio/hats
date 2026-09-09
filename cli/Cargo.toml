@@ -1,7 +1,7 @@
 [package]
 name = "hats"
 version = "0.2.0"
-description = "One laptop, many hats: dotfiles and per-shell client profiles."
+description = "One laptop, many hats: dotfiles and per-shell client contexts."
 readme = "../README.md"
 keywords = ["dotfiles", "profiles", "cli", "chezmoi", "shell"]
 categories = ["command-line-utilities"]

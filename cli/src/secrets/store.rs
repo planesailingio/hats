@@ -30,7 +30,7 @@ struct SecretsFile {
     values: BTreeMap<String, String>,
 }
 
-/// Fetched secret values, keyed by the names profiles and templates use.
+/// Fetched secret values, keyed by the names hats and templates use.
 #[derive(Default, Clone)]
 pub struct Secrets {
     values: BTreeMap<String, SecretString>,

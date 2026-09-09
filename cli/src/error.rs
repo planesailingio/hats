@@ -8,14 +8,14 @@ use std::path::PathBuf;
 /// Something wrong with `hats.yaml` or `~/.hats/config.yaml`.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("no profile named `{name}` (known profiles: {})", known.join(", "))]
-    UnknownProfile { name: String, known: Vec<String> },
+    #[error("no hat named `{name}` (known hats: {})", known.join(", "))]
+    UnknownHat { name: String, known: Vec<String> },
 
-    #[error("profile `{profile}` inherits from `{parent}`, which does not exist")]
-    UnknownParent { profile: String, parent: String },
+    #[error("hat `{hat}` inherits from `{parent}`, which does not exist")]
+    UnknownParent { hat: String, parent: String },
 
-    #[error("profile `{profile}` inherits from itself: {chain}")]
-    ProfileCycle { profile: String, chain: String },
+    #[error("hat `{hat}` inherits from itself: {chain}")]
+    HatCycle { hat: String, chain: String },
 
     #[error("{path} is not valid YAML")]
     Parse {

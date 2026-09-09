@@ -1,24 +1,24 @@
-//! `hats env <profile>` and `hats shell-init <shell>`.
+//! `hats env <hat>` and `hats shell-init <shell>`.
 //!
-//! These two are the profile switcher. `env` prints the shell code for one
-//! switch; `shell-init` prints the `profile` function that evals it.
+//! These two are the hat switcher. `env` prints the shell code for one
+//! switch; `shell-init` prints the `hat` function that evals it.
 //!
 //! `env` runs on every new shell, so it has one overriding requirement: when
 //! anything goes wrong it must print *nothing* to stdout and exit cleanly under
 //! `--quiet`. A login shell evaluating a partial script is a much worse failure
-//! than a shell with no profile.
+//! than a shell with no hat.
 
 use anyhow::Result;
 use minijinja::{Environment, context};
 
 use crate::app::App;
 use crate::cli::{EnvArgs, ShellInitArgs};
-use crate::profile::emit::{ShellEmitter, Zsh, sh_quote};
-use crate::profile::{EnvOptions, EnvPlan, kube};
+use crate::hat::emit::{ShellEmitter, Zsh, sh_quote};
+use crate::hat::{EnvOptions, EnvPlan, kube};
 use crate::secrets::store::Secrets;
 
 /// The integration script, compiled into the binary so a mid-upgrade repo
-/// cannot leave a shell without its `profile` function.
+/// cannot leave a shell without its `hat` function.
 const ZSH_INIT: &str = include_str!("../../shell/hats.zsh.j2");
 
 pub fn env(app: &mut App, args: &EnvArgs) -> Result<()> {
@@ -47,14 +47,14 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
         no_colour: args.no_colour,
         reset_only: args.reset,
     };
-    let name = match &args.profile {
+    let name = match &args.hat {
         Some(n) => n.clone(),
-        None => cfg.local.default_profile(),
+        None => cfg.local.default_hat(),
     };
 
     let mut plan = EnvPlan::build(&cfg, &name, &secrets, &platform.home, opts)?;
 
-    // Seed the per-profile kubeconfig and select its context here, in the
+    // Seed the per-hat kubeconfig and select its context here, in the
     // process, rather than emitting shell to do it. Both act on files, not on
     // the parent shell, so there is nothing to gain from deferring them, and
     // failures stay out of the evaluated script.
@@ -77,7 +77,7 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
 
     if !plan.missing_secrets.is_empty() && !args.quiet {
         app.ui.warn(format!(
-            "profile `{name}` refers to {} unfetched secret{}: {}. Run `hats secrets fetch`.",
+            "hat `{name}` refers to {} unfetched secret{}: {}. Run `hats secrets fetch`.",
             plan.missing_secrets.len(),
             if plan.missing_secrets.len() == 1 {
                 ""
@@ -93,10 +93,10 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
 
 pub fn shell_init(app: &mut App, args: &ShellInitArgs) -> Result<()> {
     // shell-init must work before `hats init` has run, so a missing config is
-    // not fatal: emit the functions with no baseline profile.
-    let (default_profile, env_bundles, repo_dir) = match app.config() {
+    // not fatal: emit the functions with no baseline hat.
+    let (default_hat, env_bundles, repo_dir) = match app.config() {
         Ok(cfg) => (
-            Some(cfg.local.default_profile()),
+            Some(cfg.local.default_hat()),
             cfg.group_enabled("env-bundles"),
             app.paths.repo.to_string_lossy().into_owned(),
         ),
@@ -114,7 +114,7 @@ pub fn shell_init(app: &mut App, args: &ShellInitArgs) -> Result<()> {
     jinja.add_filter("sh_quote", |v: String| sh_quote(&v));
     jinja.add_template("init", ZSH_INIT)?;
     let rendered = jinja.get_template("init")?.render(context! {
-        default_profile => default_profile,
+        default_hat => default_hat,
         env_bundles => env_bundles,
         repo_dir => repo_dir,
     })?;
@@ -129,7 +129,7 @@ mod tests {
 
     /// Render the integration script the way `shell-init` does, without needing
     /// a configured machine.
-    fn render(default_profile: Option<&str>, env_bundles: bool) -> String {
+    fn render(default_hat: Option<&str>, env_bundles: bool) -> String {
         let mut jinja = Environment::new();
         jinja.add_filter("sh_quote", |v: String| sh_quote(&v));
         jinja.add_template("init", ZSH_INIT).unwrap();
@@ -137,7 +137,7 @@ mod tests {
             .get_template("init")
             .unwrap()
             .render(context! {
-                default_profile => default_profile,
+                default_hat => default_hat,
                 env_bundles => env_bundles,
                 repo_dir => "/home/t/.hats/repo",
             })
@@ -179,11 +179,11 @@ mod tests {
     }
 
     #[test]
-    fn it_defines_the_profile_function_and_its_completion() {
+    fn it_defines_the_hat_function_and_its_completion() {
         let script = render(Some("normal"), false);
-        assert!(script.contains("profile() {"));
-        assert!(script.contains("compdef _hats_profiles profile"));
-        assert!(script.contains("fzf --prompt='profile > '"));
+        assert!(script.contains("hat() {"));
+        assert!(script.contains("compdef _hats_hats hat"));
+        assert!(script.contains("fzf --prompt='hat > '"));
     }
 
     #[test]
@@ -197,15 +197,15 @@ mod tests {
     #[test]
     fn without_a_config_there_is_no_baseline_eval() {
         let script = render(None, false);
-        // The `profile` function itself calls `hats env`, so assert on the
+        // The `hat` function itself calls `hats env`, so assert on the
         // baseline block specifically: the guard that runs it at shell start.
         assert!(
-            !script.contains("if [ -z \"${HATS_PROFILE:-}\" ]"),
-            "an unconfigured machine must not eval a profile at shell start:\n{script}"
+            !script.contains("if [ -z \"${HATS_HAT:-}\" ]"),
+            "an unconfigured machine must not eval a hat at shell start:\n{script}"
         );
         assert!(!script.contains("--quiet"), "{script}");
-        // But the function is still defined, so `profile` works after init.
-        assert!(script.contains("profile() {"));
+        // But the function is still defined, so `hat` works after init.
+        assert!(script.contains("hat() {"));
     }
 
     #[test]

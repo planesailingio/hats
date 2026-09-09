@@ -198,7 +198,7 @@ pub fn lint(app: &mut App, args: &LintArgs) -> Result<i32> {
     let platform = app.platform()?;
     let files_dir = app.paths.repo.join(crate::config::FILES_DIR);
 
-    // 1. Manifest and profile consistency.
+    // 1. Manifest and hat consistency.
     problems.extend(cfg.problems());
 
     // 2. Manifest entries with no file behind them.

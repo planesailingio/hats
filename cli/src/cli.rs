@@ -8,7 +8,7 @@ use clap::{ArgAction, Args, Parser, Subcommand};
 #[command(
     name = "hats",
     version,
-    about = "One laptop, many hats: dotfiles and per-shell client profiles",
+    about = "One laptop, many hats: dotfiles and per-shell client hats",
     long_about = None,
     propagate_version = true
 )]
@@ -61,8 +61,8 @@ pub enum Command {
     /// Check that this machine has what hats needs
     Doctor(DoctorArgs),
 
-    /// Inspect and manage profiles
-    Profile(ProfileArgs),
+    /// Inspect and manage hats
+    Hat(HatArgs),
 
     /// Preview what an apply would change, terraform style
     Plan(PlanArgs),
@@ -82,19 +82,19 @@ pub enum Command {
     /// List or run the repo's hooks
     Hooks(HooksArgs),
 
-    /// Check the manifest, templates, profiles and shell scripts
+    /// Check the manifest, templates, hats and shell scripts
     Lint(LintArgs),
 
-    /// Fetch, inspect or clear the secrets hats hands to profiles and templates
+    /// Fetch, inspect or clear the secrets hats hands to hats and templates
     Secrets(SecretsArgs),
 
-    /// Check the profile switcher actually works on this machine
+    /// Check the hat switcher actually works on this machine
     Test(TestArgs),
 
-    /// Print the shell code that switches this shell to a profile
+    /// Print the shell code that switches this shell to a hat
     Env(EnvArgs),
 
-    /// Print the shell integration: the `profile` switcher and its completion
+    /// Print the shell integration: the `hat` switcher and its completion
     ShellInit(ShellInitArgs),
 
     /// Generate a shell completion script
@@ -138,29 +138,29 @@ pub struct DoctorArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct ProfileArgs {
+pub struct HatArgs {
     #[command(subcommand)]
-    pub command: Option<ProfileCommand>,
+    pub command: Option<HatCommand>,
 }
 
 #[derive(Debug, Subcommand)]
-pub enum ProfileCommand {
-    /// List the profiles configured on this machine
+pub enum HatCommand {
+    /// List the hats configured on this machine
     List {
         /// One name per line, for shell completion and fzf
         #[arg(long)]
         plain: bool,
     },
-    /// Show one profile with its inheritance folded in
+    /// Show one hat with its inheritance folded in
     Show {
         name: String,
         /// Machine-readable output
         #[arg(long)]
         json: bool,
     },
-    /// Print the active profile
+    /// Print the active hat
     Current {
-        /// One line: profile, git identity, AWS profile, kube context
+        /// One line: hat, git identity, AWS profile, kube context
         #[arg(long)]
         summary: bool,
     },
@@ -368,8 +368,8 @@ pub enum SecretsCommand {
 
 #[derive(Debug, Args)]
 pub struct EnvArgs {
-    /// Profile to switch to (default: the configured default profile)
-    pub profile: Option<String>,
+    /// Hat to switch to (default: the configured default hat)
+    pub hat: Option<String>,
 
     /// Do not touch the kubeconfig
     #[arg(long)]
@@ -430,11 +430,11 @@ mod tests {
     }
 
     #[test]
-    fn profile_defaults_to_no_subcommand() {
-        let cli = Cli::try_parse_from(["hats", "profile"]).unwrap();
+    fn hat_defaults_to_no_subcommand() {
+        let cli = Cli::try_parse_from(["hats", "hat"]).unwrap();
         match cli.command {
-            Command::Profile(a) => assert!(a.command.is_none()),
-            other => panic!("expected profile, got {other:?}"),
+            Command::Hat(a) => assert!(a.command.is_none()),
+            other => panic!("expected hat, got {other:?}"),
         }
     }
 

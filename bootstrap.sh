@@ -8,7 +8,7 @@
 # Every step is idempotent, so re-running on a configured machine is a no-op.
 #
 # `hats init` takes it from there: it clones this repo into ~/.hats/repo, asks
-# which groups of files to manage, walks you through your profiles, and asks how
+# which groups of files to manage, walks you through your hats, and asks how
 # secrets should be fetched. Nothing is written to your home directory until you
 # run `hats apply`, and `hats plan` shows exactly what that would change first.
 set -eu
@@ -64,7 +64,7 @@ Next:
   hats apply         write the files and run the setup hooks
   hats doctor        check this machine has everything hats needs
 
-Then open a new terminal (set its font to a Nerd Font) and run `profile` to
+Then open a new terminal (set its font to a Nerd Font) and run `hat` to
 switch client context. `hats secrets fetch` pulls tokens down if you configured
 a secrets provider.
 EOF

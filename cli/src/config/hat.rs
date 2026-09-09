@@ -3,11 +3,11 @@
 //! The old system wrote one zsh file per client that `source`d its parent and
 //! relied on a hand-maintained `_profile_reset` unset list. That list was
 //! incomplete, so `AWS_PROFILE`, `JIRA_API_TOKEN` and friends leaked from one
-//! profile into the next.
+//! hat into the next.
 //!
-//! Here a profile is a struct. Inheritance is a fold over the chain, and the
-//! unset list is [`env_keys`](ResolvedProfile::env_keys) unioned across *every*
-//! profile. Adding a variable to any profile therefore adds it to the reset set
+//! Here a hat is a struct. Inheritance is a fold over the chain, and the
+//! unset list is [`env_keys`](ResolvedHat::env_keys) unioned across *every*
+//! hat. Adding a variable to any hat therefore adds it to the reset set
 //! by construction: the leak cannot come back.
 
 use std::collections::BTreeSet;
@@ -17,14 +17,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ConfigError;
 
-/// Environment variables hats always owns, whichever profile is active.
-/// `DEV_PROFILE` is kept as a compatibility alias for starship and the
-/// `~/.ssh/config.d` `Match exec` recipe. `ENV_PROFILE` belongs to the
-/// orthogonal dev/staging/prod bundles, and is reset so a bundle cannot
-/// outlive the profile switch that follows it.
-pub const ALWAYS_OWNED: &[&str] = &["HATS_PROFILE", "DEV_PROFILE", "ENV_PROFILE", "KUBECONFIG"];
+/// Environment variables hats always owns, whichever hat is active.
+pub const ALWAYS_OWNED: &[&str] = &["HATS_HAT", "ENV_PROFILE", "KUBECONFIG"];
 
-/// A value in a profile's `env` map: either a literal or a reference to a
+/// A value in a hat's `env` map: either a literal or a reference to a
 /// secret resolved at emit time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -42,7 +38,7 @@ impl EnvValue {
     }
 }
 
-/// Git identity for a profile. Every field is optional so a child profile can
+/// Git identity for a hat. Every field is optional so a child hat can
 /// override the email while inheriting the signing key.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -92,11 +88,11 @@ impl AwsSpec {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KubeSpec {
-    /// Context to select in this profile's own kubeconfig.
+    /// Context to select in this hat's own kubeconfig.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<String>,
-    /// Give this profile its own copy of ~/.kube/config. Defaults to true:
-    /// even the base profile isolates, so a plain terminal never writes the
+    /// Give this hat its own copy of ~/.kube/config. Defaults to true:
+    /// even the base hat isolates, so a plain terminal never writes the
     /// shared file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub isolate: Option<bool>,
@@ -113,10 +109,10 @@ impl KubeSpec {
     }
 }
 
-/// A profile exactly as written in `~/.hats/config.yaml`.
+/// A hat exactly as written in `~/.hats/config.yaml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ProfileSpec {
+pub struct HatSpec {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inherits: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -136,9 +132,9 @@ pub struct ProfileSpec {
     pub path: Vec<String>,
 }
 
-/// A profile with its inheritance chain folded in.
+/// A hat with its inheritance chain folded in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct ResolvedProfile {
+pub struct ResolvedHat {
     pub name: String,
     pub description: Option<String>,
     pub colour: Option<String>,
@@ -149,18 +145,18 @@ pub struct ResolvedProfile {
     pub path: Vec<String>,
 }
 
-impl ResolvedProfile {
-    /// Whether this profile gets its own kubeconfig. Isolation is the default
+impl ResolvedHat {
+    /// Whether this hat gets its own kubeconfig. Isolation is the default
     /// because the whole point of the system is that a `use-context` in one
     /// terminal cannot leak into another.
     pub fn kube_isolated(&self) -> bool {
         self.kube.isolate.unwrap_or(true)
     }
 
-    /// Every environment variable this profile sets, derived plus explicit.
+    /// Every environment variable this hat sets, derived plus explicit.
     ///
     /// This is the function the reset list is built from, so anything that
-    /// [`crate::profile`] emits must be reported here or it will leak.
+    /// [`crate::hat`] emits must be reported here or it will leak.
     pub fn env_keys(&self) -> BTreeSet<String> {
         let mut keys = BTreeSet::new();
         for k in ALWAYS_OWNED {
@@ -190,7 +186,7 @@ impl ResolvedProfile {
         keys
     }
 
-    /// Secret keys this profile refers to, so `hats lint` can flag a reference
+    /// Secret keys this hat refers to, so `hats lint` can flag a reference
     /// to a secret the provider never supplies.
     pub fn secret_refs(&self) -> BTreeSet<String> {
         let mut refs = BTreeSet::new();
@@ -211,16 +207,16 @@ impl ResolvedProfile {
     }
 }
 
-/// Fold a profile's inheritance chain into a [`ResolvedProfile`].
+/// Fold a hat's inheritance chain into a [`ResolvedHat`].
 ///
 /// `base_identity` is the top-level `identity:` from the machine config: it
-/// fills any field the root profile leaves unset, so a second user only has to
-/// answer the wizard rather than edit every profile.
+/// fills any field the root hat leaves unset, so a second user only has to
+/// answer the wizard rather than edit every hat.
 pub fn resolve(
     name: &str,
-    profiles: &IndexMap<String, ProfileSpec>,
+    hats: &IndexMap<String, HatSpec>,
     base_identity: Option<&IdentitySpec>,
-) -> Result<ResolvedProfile, ConfigError> {
+) -> Result<ResolvedHat, ConfigError> {
     // Walk up to the root, detecting cycles and missing parents.
     let mut chain: Vec<&str> = Vec::new();
     let mut seen: BTreeSet<&str> = BTreeSet::new();
@@ -229,20 +225,20 @@ pub fn resolve(
         if !seen.insert(cursor) {
             let mut cycle: Vec<String> = chain.iter().rev().map(|s| (*s).to_string()).collect();
             cycle.push(cursor.to_string());
-            return Err(ConfigError::ProfileCycle {
-                profile: name.to_string(),
+            return Err(ConfigError::HatCycle {
+                hat: name.to_string(),
                 chain: cycle.join(" -> "),
             });
         }
-        let spec = profiles.get(cursor).ok_or_else(|| {
+        let spec = hats.get(cursor).ok_or_else(|| {
             if cursor == name {
-                ConfigError::UnknownProfile {
+                ConfigError::UnknownHat {
                     name: name.to_string(),
-                    known: profiles.keys().cloned().collect(),
+                    known: hats.keys().cloned().collect(),
                 }
             } else {
                 ConfigError::UnknownParent {
-                    profile: name.to_string(),
+                    hat: name.to_string(),
                     parent: cursor.to_string(),
                 }
             }
@@ -254,7 +250,7 @@ pub fn resolve(
         }
     }
 
-    let mut out = ResolvedProfile {
+    let mut out = ResolvedHat {
         name: name.to_string(),
         description: None,
         colour: None,
@@ -267,7 +263,7 @@ pub fn resolve(
 
     // Root first, leaf last, so the child always wins.
     for step in chain.iter().rev() {
-        let spec = &profiles[*step];
+        let spec = &hats[*step];
         if spec.description.is_some() {
             out.description = spec.description.clone();
         }
@@ -293,29 +289,29 @@ pub fn resolve(
         }
     }
 
-    // The description of an inherited profile should not be the parent's.
-    if profiles[name].description.is_none() {
-        out.description = profiles[name].description.clone();
+    // The description of an inherited hat should not be the parent's.
+    if hats[name].description.is_none() {
+        out.description = hats[name].description.clone();
     }
 
     Ok(out)
 }
 
-/// The union of every profile's variables: the unset list emitted before any
-/// profile's exports. Unioning across *all* profiles (not just the one being
-/// switched to) is what stops the previous profile leaking into the next.
+/// The union of every hat's variables: the unset list emitted before any
+/// hat's exports. Unioning across *all* hats (not just the one being
+/// switched to) is what stops the previous hat leaking into the next.
 pub fn all_env_keys(
-    profiles: &IndexMap<String, ProfileSpec>,
+    hats: &IndexMap<String, HatSpec>,
     base_identity: Option<&IdentitySpec>,
 ) -> BTreeSet<String> {
     let mut keys: BTreeSet<String> = ALWAYS_OWNED.iter().map(|s| (*s).to_string()).collect();
-    for name in profiles.keys() {
-        // A broken profile must not silently shrink the reset list, but it is
+    for name in hats.keys() {
+        // A broken hat must not silently shrink the reset list, but it is
         // reported by `hats lint` rather than blocking a shell switch, so fall
         // back to the raw keys we can see without resolving.
-        match resolve(name, profiles, base_identity) {
+        match resolve(name, hats, base_identity) {
             Ok(p) => keys.extend(p.env_keys()),
-            Err(_) => keys.extend(profiles[name].env.keys().cloned()),
+            Err(_) => keys.extend(hats[name].env.keys().cloned()),
         }
     }
     keys
@@ -325,11 +321,11 @@ pub fn all_env_keys(
 mod tests {
     use super::*;
 
-    fn spec(yaml: &str) -> IndexMap<String, ProfileSpec> {
+    fn spec(yaml: &str) -> IndexMap<String, HatSpec> {
         serde_yaml_ng::from_str(yaml).unwrap()
     }
 
-    fn fixture() -> IndexMap<String, ProfileSpec> {
+    fn fixture() -> IndexMap<String, HatSpec> {
         spec(
             r##"
 normal:
@@ -374,27 +370,27 @@ acme:
 
     #[test]
     fn base_identity_fills_gaps_in_the_root_profile() {
-        let profiles = spec("normal:\n  aws: { profile: default }\n");
+        let hats = spec("normal:\n  aws: { profile: default }\n");
         let base = IdentitySpec {
             name: Some("Jane".into()),
             email: Some("jane@example.com".into()),
             signing_key: None,
         };
-        let p = resolve("normal", &profiles, Some(&base)).unwrap();
+        let p = resolve("normal", &hats, Some(&base)).unwrap();
         assert_eq!(p.identity.name.as_deref(), Some("Jane"));
     }
 
     #[test]
     fn a_cycle_is_an_error_naming_the_chain() {
-        let profiles = spec("a:\n  inherits: b\nb:\n  inherits: a\n");
-        let err = resolve("a", &profiles, None).unwrap_err();
-        assert!(matches!(err, ConfigError::ProfileCycle { .. }), "{err:?}");
+        let hats = spec("a:\n  inherits: b\nb:\n  inherits: a\n");
+        let err = resolve("a", &hats, None).unwrap_err();
+        assert!(matches!(err, ConfigError::HatCycle { .. }), "{err:?}");
     }
 
     #[test]
     fn a_missing_parent_names_the_parent_not_the_child() {
-        let profiles = spec("a:\n  inherits: ghost\n");
-        let err = resolve("a", &profiles, None).unwrap_err();
+        let hats = spec("a:\n  inherits: ghost\n");
+        let err = resolve("a", &hats, None).unwrap_err();
         match err {
             ConfigError::UnknownParent { parent, .. } => assert_eq!(parent, "ghost"),
             other => panic!("expected UnknownParent, got {other:?}"),
@@ -405,7 +401,7 @@ acme:
     fn an_unknown_profile_lists_the_known_ones() {
         let err = resolve("nope", &fixture(), None).unwrap_err();
         match err {
-            ConfigError::UnknownProfile { known, .. } => {
+            ConfigError::UnknownHat { known, .. } => {
                 assert_eq!(known, vec!["normal", "acme"]);
             }
             other => panic!("expected UnknownProfile, got {other:?}"),
@@ -423,38 +419,38 @@ acme:
             "AWS_PROFILE",
             "AWS_DEFAULT_REGION",
             "JIRA_API_TOKEN",
-            "HATS_PROFILE",
+            "HATS_HAT",
             "KUBECONFIG",
         ] {
             assert!(keys.contains(expected), "missing {expected}");
         }
     }
 
-    /// The regression test for the original bug: switching to a profile that
+    /// The regression test for the original bug: switching to a hat that
     /// does not set JIRA_API_TOKEN must still unset it.
     #[test]
     fn the_reset_list_is_the_union_over_every_profile() {
-        let profiles = fixture();
-        let all = all_env_keys(&profiles, None);
-        let normal = resolve("normal", &profiles, None).unwrap();
+        let hats = fixture();
+        let all = all_env_keys(&hats, None);
+        let normal = resolve("normal", &hats, None).unwrap();
         assert!(!normal.env_keys().contains("JIRA_API_TOKEN"));
         assert!(all.contains("JIRA_API_TOKEN"));
         assert!(all.contains("JIRA_EMAIL"));
     }
 
-    /// Adding a variable to any one profile must widen the reset list with no
+    /// Adding a variable to any one hat must widen the reset list with no
     /// other edit. This is the property that keeps the leak fixed.
     #[test]
     fn a_new_variable_joins_the_reset_list_automatically() {
-        let mut profiles = fixture();
-        let before = all_env_keys(&profiles, None);
+        let mut hats = fixture();
+        let before = all_env_keys(&hats, None);
         assert!(!before.contains("NEW_TOKEN"));
-        profiles
+        hats
             .get_mut("acme")
             .unwrap()
             .env
             .insert("NEW_TOKEN".into(), EnvValue::Literal("x".into()));
-        assert!(all_env_keys(&profiles, None).contains("NEW_TOKEN"));
+        assert!(all_env_keys(&hats, None).contains("NEW_TOKEN"));
     }
 
     #[test]
@@ -468,14 +464,14 @@ acme:
 
     #[test]
     fn kube_isolation_defaults_to_on() {
-        let profiles = spec("solo: {}\n");
-        assert!(resolve("solo", &profiles, None).unwrap().kube_isolated());
+        let hats = spec("solo: {}\n");
+        assert!(resolve("solo", &hats, None).unwrap().kube_isolated());
     }
 
     #[test]
     fn colour_accepts_the_american_spelling_too() {
-        let profiles = spec("solo:\n  color: \"#112233\"\n");
-        let p = resolve("solo", &profiles, None).unwrap();
+        let hats = spec("solo:\n  color: \"#112233\"\n");
+        let p = resolve("solo", &hats, None).unwrap();
         assert_eq!(p.colour.as_deref(), Some("#112233"));
     }
 }

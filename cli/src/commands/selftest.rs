@@ -2,7 +2,7 @@
 //!
 //! This replaces the shell test suite the dotfiles used to run inside Docker.
 //! The assertions are the same, and they are the ones that matter: not "does
-//! the file exist" but "does a real shell, given this profile, commit as the
+//! the file exist" but "does a real shell, given this hat, commit as the
 //! right person and point at its own kubeconfig".
 //!
 //! Every check is skipped rather than failed when its prerequisite is absent,
@@ -92,18 +92,18 @@ fn zsh_starts() -> Check {
     }
 }
 
-/// For each profile: evaluate its environment in a real shell and read back the
+/// For each hat: evaluate its environment in a real shell and read back the
 /// values, which is the only way to know the emitted script does what it says.
 fn profile_checks(app: &App, cfg: &Config) -> Result<Vec<Check>> {
     let mut checks = Vec::new();
     let exe = std::env::current_exe().context("finding this binary")?;
 
-    for name in cfg.profile_names() {
-        let resolved = match cfg.resolve_profile(&name) {
+    for name in cfg.hat_names() {
+        let resolved = match cfg.resolve_hat(&name) {
             Ok(p) => p,
             Err(e) => {
                 checks.push(check(
-                    format!("profile {name}"),
+                    format!("hat {name}"),
                     Verdict::Fail(e.to_string()),
                 ));
                 continue;
@@ -112,7 +112,7 @@ fn profile_checks(app: &App, cfg: &Config) -> Result<Vec<Check>> {
 
         let script = format!(
             "eval \"$({} --hats-home {} env {} --no-colour)\" && \
-             printf '%s|%s|%s' \"$HATS_PROFILE\" \"$GIT_AUTHOR_EMAIL\" \"$AWS_PROFILE\"",
+             printf '%s|%s|%s' \"$HATS_HAT\" \"$GIT_AUTHOR_EMAIL\" \"$AWS_PROFILE\"",
             shell_quote(&exe.to_string_lossy()),
             shell_quote(&app.paths.root.to_string_lossy()),
             shell_quote(&name),
@@ -131,7 +131,7 @@ fn profile_checks(app: &App, cfg: &Config) -> Result<Vec<Check>> {
 
                 if parts.first() != Some(&name.as_str()) {
                     Verdict::Fail(format!(
-                        "HATS_PROFILE was {:?}, expected {name}",
+                        "HATS_HAT was {:?}, expected {name}",
                         parts.first()
                     ))
                 } else if parts.get(1).copied() != Some(want_email.as_str()) {
@@ -152,23 +152,23 @@ fn profile_checks(app: &App, cfg: &Config) -> Result<Vec<Check>> {
             Err(e) => Verdict::Fail(e.to_string()),
         };
         checks.push(check(
-            format!("profile {name} applies in a real shell"),
+            format!("hat {name} applies in a real shell"),
             verdict,
         ));
     }
     Ok(checks)
 }
 
-/// Two shells on two profiles must end up with different, non-empty
+/// Two shells on two hats must end up with different, non-empty
 /// kubeconfigs, and the shared one must not move. This is the property the
 /// whole design exists to protect.
 fn kube_isolation(app: &App, cfg: &Config) -> Result<Check> {
     let name = "two shells get separate kubeconfigs";
     let isolated: Vec<String> = cfg
-        .profile_names()
+        .hat_names()
         .into_iter()
         .filter(|n| {
-            cfg.resolve_profile(n)
+            cfg.resolve_hat(n)
                 .map(|p| p.kube_isolated())
                 .unwrap_or(false)
         })
@@ -176,7 +176,7 @@ fn kube_isolation(app: &App, cfg: &Config) -> Result<Check> {
     if isolated.len() < 2 {
         return Ok(check(
             name,
-            Verdict::Skip("needs two isolated profiles".into()),
+            Verdict::Skip("needs two isolated hats".into()),
         ));
     }
 
@@ -224,23 +224,23 @@ fn kube_isolation(app: &App, cfg: &Config) -> Result<Check> {
 }
 
 /// The end-to-end assertion: make a real commit inside a shell holding a
-/// profile, and check who git thinks wrote it. Environment variables are only
+/// hat, and check who git thinks wrote it. Environment variables are only
 /// worth anything if git actually honours them.
 fn commit_identity(app: &App, cfg: &Config) -> Result<Check> {
-    let name = "a real commit carries the profile's identity";
+    let name = "a real commit carries the hat's identity";
     if which::which("git").is_err() {
         return Ok(check(name, Verdict::Skip("git not installed".into())));
     }
 
-    let Some((profile, email)) = cfg.profile_names().into_iter().find_map(|n| {
-        cfg.resolve_profile(&n)
+    let Some((hat, email)) = cfg.hat_names().into_iter().find_map(|n| {
+        cfg.resolve_hat(&n)
             .ok()
             .and_then(|p| p.identity.email.clone())
             .map(|e| (n, e))
     }) else {
         return Ok(check(
             name,
-            Verdict::Skip("no profile sets an email".into()),
+            Verdict::Skip("no hat sets an email".into()),
         ));
     };
 
@@ -253,7 +253,7 @@ fn commit_identity(app: &App, cfg: &Config) -> Result<Check> {
         shell_quote(&dir.path().to_string_lossy()),
         shell_quote(&exe.to_string_lossy()),
         shell_quote(&app.paths.root.to_string_lossy()),
-        shell_quote(&profile),
+        shell_quote(&hat),
     );
     let out = std::process::Command::new("sh")
         .arg("-c")
@@ -270,7 +270,7 @@ fn commit_identity(app: &App, cfg: &Config) -> Result<Check> {
             Verdict::Fail(format!("committed as {got}, expected {email}"))
         }
     };
-    Ok(check(format!("{name} ({profile})"), verdict))
+    Ok(check(format!("{name} ({hat})"), verdict))
 }
 
 /// The Dock hook must be a no-op off macOS, so a Linux container run does not

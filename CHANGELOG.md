@@ -8,6 +8,25 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Changed
+
+- **`profile` is now `hat`, everywhere.** The shell function, the subcommand and
+  the config all use one word for the thing you put on. `profile <name>` becomes
+  `hat <name>`, `hats profile ...` becomes `hats hat ...`, and the wizard's
+  answer keys go from `profile.1.*` to `hat.1.*`. AWS profiles keep their own
+  name throughout: they are a different thing that happened to share a word.
+- **Breaking: `~/.hats/config.yaml` keys.** `profiles:` is now `hats:`, and the
+  metadata block that used to be `hats:` is now `meta:`, since the collection
+  had the better claim on the name. `default_profile` is `default_hat`. There is
+  no migration: rename the three keys by hand.
+- **Breaking: `HATS_PROFILE` is now `HATS_HAT`,** and the `DEV_PROFILE`
+  compatibility alias is gone rather than renamed. The starship prompt reads
+  `HATS_HAT`, and `~/.ssh/config.d/*.conf` rules that match on `$DEV_PROFILE`
+  need updating to `$HATS_HAT`.
+- `hats doctor` labels the resolve check `resolve` rather than reusing `hats`,
+  which now names both the tool and the things it switches between.
+
+
 ## 0.2.0 — 2026-09-09
 
 Packages become bundles you can pick from, and YubiKey enrolment actually works

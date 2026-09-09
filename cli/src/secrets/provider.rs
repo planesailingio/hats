@@ -57,7 +57,7 @@ pub trait Provider {
     /// Can this provider run on this machine, as configured?
     fn availability(&self) -> Availability;
 
-    /// Fetch every secret this provider can see, keyed by the names profiles
+    /// Fetch every secret this provider can see, keyed by the names hats
     /// and templates use.
     fn fetch(&self, creds: &Credentials) -> Result<BTreeMap<String, SecretString>>;
 }

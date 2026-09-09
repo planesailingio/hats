@@ -69,14 +69,14 @@ impl Check {
 /// Tools hats or its hooks call. `required` ones are checked as failures.
 const TOOLS: &[(&str, bool, &str)] = &[
     ("git", true, "cloning and updating the dotfiles repo"),
-    ("zsh", false, "the shell the profile switcher targets"),
+    ("zsh", false, "the shell the hat switcher targets"),
     ("brew", false, "the Brewfile hook"),
     (
         "fzf",
         false,
-        "the profile picker when `profile` is run with no name",
+        "the hat picker when `hat` is run with no name",
     ),
-    ("kubectl", false, "per-profile kube context switching"),
+    ("kubectl", false, "per-hat kube context switching"),
     (
         // Installed as a Homebrew dependency, so an absence here means a source
         // build or a broken install. Still not fatal: it is only needed to
@@ -207,11 +207,11 @@ pub fn collect(app: &App) -> Vec<Check> {
 
     match Config::load(&app.paths) {
         Ok(cfg) => {
-            let names = cfg.profile_names();
+            let names = cfg.hat_names();
             checks.push(Check::ok(
                 "config",
                 format!(
-                    "{} profile{}: {}",
+                    "{} hat{}: {}",
                     names.len(),
                     if names.len() == 1 { "" } else { "s" },
                     names.join(", ")
@@ -220,10 +220,10 @@ pub fn collect(app: &App) -> Vec<Check> {
 
             let problems = cfg.problems();
             if problems.is_empty() {
-                checks.push(Check::ok("profiles", "resolve cleanly"));
+                checks.push(Check::ok("resolve", "hats resolve cleanly"));
             } else {
                 for p in problems {
-                    checks.push(Check::fail("profiles", p, Some("hats profile list")));
+                    checks.push(Check::fail("resolve", p, Some("hats hat list")));
                 }
             }
 

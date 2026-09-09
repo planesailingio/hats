@@ -53,7 +53,7 @@ fn default_schema() -> u32 {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RepoSecrets {
-    /// Secret keys the templates and profiles are expected to use. `hats lint`
+    /// Secret keys the templates and hats are expected to use. `hats lint`
     /// warns about references outside this list; it is advisory, never a gate,
     /// because the machine config is free to add its own.
     #[serde(default)]

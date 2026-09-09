@@ -32,10 +32,10 @@ Recipe for a client file — hosts unique to the client are plain Host blocks:
       UserKnownHostsFile ~/.ssh/known_hosts.d/acme
 
 Hostnames shared across clients (github.com is the usual one) are selected by the
-active shell profile. `profile <name>` exports DEV_PROFILE, and ssh's `Match exec`
+active hat. `hat <name>` exports HATS_HAT, and ssh's `Match exec`
 inherits that environment, so each terminal picks its own key with no wrappers:
 
-    Match host github.com exec "test \"$DEV_PROFILE\" = acme"
+    Match host github.com exec "test \"$HATS_HAT\" = acme"
       IdentityFile ~/.ssh/id_ed25519_acme
       UserKnownHostsFile ~/.ssh/known_hosts.d/acme
 
@@ -43,9 +43,9 @@ Keys: generate per client and keep them here too — never in git:
 
     ssh-keygen -t ed25519 -C "jane.doe@acme.com" -f ~/.ssh/id_ed25519_acme
 
-Check which key a host will use from a given profile:
+Check which key a host will use under a given hat:
 
-    profile acme && ssh -G github.com | grep -i identityfile
+    hat acme && ssh -G github.com | grep -i identityfile
 
 Files must be 0600 (`chmod 600 ~/.ssh/config.d/*.conf`) or ssh refuses to read them.
 

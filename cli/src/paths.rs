@@ -5,7 +5,7 @@
 //! ```text
 //! ~/.hats/
 //! ├── repo/          git clone, checked out at the tag matching this binary
-//! ├── config.yaml    machine-local wizard answers: identity, groups, profiles
+//! ├── config.yaml    machine-local wizard answers: identity, groups, hats
 //! ├── secrets.yaml   0600, values fetched from the secrets provider
 //! ├── envelope.age   0600, provider credentials encrypted to the YubiKey
 //! ├── identity.txt   age-plugin-yubikey identity stub (public)

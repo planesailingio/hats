@@ -38,7 +38,7 @@ impl ShellEmitter for Zsh {
     fn emit(&self, plan: &EnvPlan) -> String {
         let mut out = String::new();
 
-        out.push_str(&format!("# hats: profile {}\n", plan.profile));
+        out.push_str(&format!("# hats: hat {}\n", plan.hat));
 
         // Unset before you set. `2>/dev/null` because unsetting a variable that
         // was never set is noisy in some shells and harmless in all of them.
@@ -52,7 +52,7 @@ impl ShellEmitter for Zsh {
             out.push_str(&format!("export {k}={}\n", sh_quote(v)));
         }
 
-        // Guarded so re-sourcing a profile cannot grow PATH without bound.
+        // Guarded so re-sourcing a hat cannot grow PATH without bound.
         for p in &plan.path_prepend {
             let q = sh_quote(p);
             out.push_str(&format!(
@@ -71,7 +71,7 @@ impl ShellEmitter for Zsh {
 /// Tint this terminal, or this tmux pane.
 ///
 /// Inside tmux only the current pane is recoloured, so two panes can hold two
-/// profiles, matching the per-shell kubeconfig property. Outside tmux, OSC 11
+/// hats, matching the per-shell kubeconfig property. Outside tmux, OSC 11
 /// recolours the window; terminals that do not understand it ignore it.
 /// Guarded on a tty so the escape never lands in a pipe or a log.
 fn colour_line(colour: &str) -> String {
@@ -155,7 +155,7 @@ mod tests {
             .lines()
             .filter(|l| l.starts_with("export "))
             .collect();
-        assert_eq!(*exports.last().unwrap(), "export DEV_PROFILE=acme");
+        assert_eq!(*exports.last().unwrap(), "export HATS_HAT=acme");
     }
 
     #[test]
@@ -190,8 +190,8 @@ mod tests {
     /// missing interpreter.
     #[test]
     fn the_emitted_script_parses_in_sh_and_zsh() {
-        for profile in ["normal", "acme", "plain"] {
-            let script = emit(profile);
+        for hat in ["normal", "acme", "plain"] {
+            let script = emit(hat);
             let dir = tempfile::tempdir().unwrap();
             let path = dir.path().join("env.sh");
             std::fs::write(&path, &script).unwrap();
@@ -206,7 +206,7 @@ mod tests {
                     .unwrap();
                 assert!(
                     out.status.success(),
-                    "{shell} rejected the script for {profile}:\n{script}\n{}",
+                    "{shell} rejected the script for {hat}:\n{script}\n{}",
                     String::from_utf8_lossy(&out.stderr)
                 );
             }
@@ -220,7 +220,7 @@ mod tests {
         let script = emit("acme");
         let probe = format!(
             "{script}\nprintf '%s|%s|%s|%s\\n' \
-             \"$HATS_PROFILE\" \"$GIT_AUTHOR_EMAIL\" \"$AWS_PROFILE\" \"$JIRA_API_TOKEN\""
+             \"$HATS_HAT\" \"$GIT_AUTHOR_EMAIL\" \"$AWS_PROFILE\" \"$JIRA_API_TOKEN\""
         );
         let out = std::process::Command::new("sh")
             .arg("-c")
@@ -234,7 +234,7 @@ mod tests {
     }
 
     /// The leak fix, proven in a real shell: start with the previous client's
-    /// variables set, switch to a profile that sets none of them, and confirm
+    /// variables set, switch to a hat that sets none of them, and confirm
     /// they are gone.
     #[test]
     fn switching_profiles_clears_the_previous_clients_variables() {

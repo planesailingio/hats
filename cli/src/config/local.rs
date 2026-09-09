@@ -10,7 +10,7 @@ use std::path::Path;
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
-use crate::config::profile::{IdentitySpec, ProfileSpec};
+use crate::config::hat::{IdentitySpec, HatSpec};
 use crate::error::ConfigError;
 
 const HEADER: &str = "\
@@ -23,15 +23,15 @@ const HEADER: &str = "\
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LocalConfig {
     #[serde(default)]
-    pub hats: LocalMeta,
-    /// Fallback identity: fills any field the base profile leaves unset.
+    pub meta: LocalMeta,
+    /// Fallback identity: fills any field the base hat leaves unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<IdentitySpec>,
     /// Wizard answers, one per group declared in the repo manifest.
     #[serde(default)]
     pub groups: IndexMap<String, bool>,
     #[serde(default)]
-    pub profiles: IndexMap<String, ProfileSpec>,
+    pub hats: IndexMap<String, HatSpec>,
     #[serde(default)]
     pub secrets: SecretsConfig,
     /// Free-form values exposed to templates as `machine.*`.
@@ -46,7 +46,7 @@ pub struct LocalMeta {
     pub repo: Option<String>,
     /// Profile loaded on shell start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_profile: Option<String>,
+    pub default_hat: Option<String>,
 }
 
 /// Which secrets backend to use. Only Bitwarden is implemented; the other
@@ -201,13 +201,13 @@ impl LocalConfig {
         Ok(())
     }
 
-    /// The profile a new shell starts in: the configured default, else the
-    /// first profile declared, else "normal".
-    pub fn default_profile(&self) -> String {
-        self.hats
-            .default_profile
+    /// The hat a new shell starts in: the configured default, else the
+    /// first hat declared, else "normal".
+    pub fn default_hat(&self) -> String {
+        self.meta
+            .default_hat
             .clone()
-            .or_else(|| self.profiles.keys().next().cloned())
+            .or_else(|| self.hats.keys().next().cloned())
             .unwrap_or_else(|| "normal".into())
     }
 }
@@ -215,13 +215,13 @@ impl LocalConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::profile::EnvValue;
+    use crate::config::hat::EnvValue;
 
     #[test]
     fn round_trips_through_yaml() {
         let mut cfg = LocalConfig::default();
-        cfg.hats.repo = Some("https://example.com/dotfiles.git".into());
-        cfg.hats.default_profile = Some("normal".into());
+        cfg.meta.repo = Some("https://example.com/dotfiles.git".into());
+        cfg.meta.default_hat = Some("normal".into());
         cfg.identity = Some(IdentitySpec {
             name: Some("Jane".into()),
             email: Some("jane@example.com".into()),
@@ -229,14 +229,14 @@ mod tests {
         });
         cfg.groups.insert("shell".into(), true);
         cfg.groups.insert("env-bundles".into(), false);
-        let mut normal = ProfileSpec {
+        let mut normal = HatSpec {
             colour: Some("#2a2040".into()),
             ..Default::default()
         };
         normal
             .env
             .insert("EDITOR".into(), EnvValue::Literal("code --wait".into()));
-        cfg.profiles.insert("normal".into(), normal);
+        cfg.hats.insert("normal".into(), normal);
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.yaml");
@@ -246,10 +246,10 @@ mod tests {
         assert!(text.starts_with("# ~/.hats/config.yaml"), "header missing");
 
         let back = LocalConfig::load(&path).unwrap();
-        assert_eq!(back.default_profile(), "normal");
+        assert_eq!(back.default_hat(), "normal");
         assert!(!back.groups["env-bundles"]);
         assert_eq!(
-            back.profiles["normal"].env["EDITOR"],
+            back.hats["normal"].env["EDITOR"],
             EnvValue::Literal("code --wait".into())
         );
     }
@@ -263,16 +263,16 @@ mod tests {
     }
 
     #[test]
-    fn default_profile_falls_back_to_the_first_declared() {
+    fn default_hat_falls_back_to_the_first_declared() {
         let mut cfg = LocalConfig::default();
-        cfg.profiles.insert("work".into(), ProfileSpec::default());
-        cfg.profiles.insert("home".into(), ProfileSpec::default());
-        assert_eq!(cfg.default_profile(), "work");
+        cfg.hats.insert("work".into(), HatSpec::default());
+        cfg.hats.insert("home".into(), HatSpec::default());
+        assert_eq!(cfg.default_hat(), "work");
     }
 
     #[test]
-    fn default_profile_falls_back_to_normal_when_there_are_none() {
-        assert_eq!(LocalConfig::default().default_profile(), "normal");
+    fn default_hat_falls_back_to_normal_when_there_are_none() {
+        assert_eq!(LocalConfig::default().default_hat(), "normal");
     }
 
     #[test]

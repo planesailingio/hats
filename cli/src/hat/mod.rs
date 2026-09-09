@@ -1,4 +1,4 @@
-//! Turning a profile into a shell environment.
+//! Turning a hat into a shell environment.
 //!
 //! A child process cannot change its parent's environment, so `hats env <name>`
 //! prints shell code and the shell integration `eval`s it. Everything the
@@ -6,7 +6,7 @@
 //! documentation cannot disagree.
 //!
 //! Rule 3 of the design ("unset before you set") is enforced structurally: the
-//! unset list is the union of every profile's keys, not a list anyone maintains.
+//! unset list is the union of every hat's keys, not a list anyone maintains.
 
 pub mod emit;
 pub mod kube;
@@ -16,14 +16,14 @@ use std::path::PathBuf;
 use indexmap::IndexMap;
 
 use crate::config::Config;
-use crate::config::profile::{EnvValue, ResolvedProfile};
+use crate::config::hat::{EnvValue, ResolvedHat};
 use crate::error::ConfigError;
 use crate::secrets::store::Secrets;
 
-/// Everything a profile switch changes, resolved and ready to emit.
+/// Everything a hat switch changes, resolved and ready to emit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvPlan {
-    pub profile: String,
+    pub hat: String,
     /// Cleared first, always. Sorted for a stable, snapshot-testable output.
     pub unset: Vec<String>,
     /// Exported in insertion order, which matters because later values may
@@ -35,7 +35,7 @@ pub struct EnvPlan {
     pub kube_context: Option<String>,
     /// Terminal tint, or None to leave the background alone.
     pub colour: Option<String>,
-    /// Secrets the profile refers to that have no value. Reported to stderr so
+    /// Secrets the hat refers to that have no value. Reported to stderr so
     /// a shell never silently gets an empty token.
     pub missing_secrets: Vec<String>,
 }
@@ -63,11 +63,11 @@ impl EnvPlan {
         home: &std::path::Path,
         opts: EnvOptions,
     ) -> Result<Self, ConfigError> {
-        let p = cfg.resolve_profile(name)?;
+        let p = cfg.resolve_hat(name)?;
 
         let mut plan = Self {
-            profile: name.to_string(),
-            // The union across every profile. This is the leak fix.
+            hat: name.to_string(),
+            // The union across every hat. This is the leak fix.
             unset: cfg.all_env_keys().into_iter().collect(),
             set: IndexMap::new(),
             path_prepend: Vec::new(),
@@ -99,17 +99,14 @@ impl EnvPlan {
             plan.colour = p.colour.clone();
         }
 
-        // Set last, deliberately. The old zsh had a trap where a profile that
-        // sourced its parent after setting DEV_PROFILE reported the parent's
-        // name; here the marker cannot be overwritten by anything.
-        plan.set.insert("HATS_PROFILE".into(), name.to_string());
-        plan.set.insert("DEV_PROFILE".into(), name.to_string());
+        // Set last, deliberately. The old zsh had a trap where a hat that
+        plan.set.insert("HATS_HAT".into(), name.to_string());
 
         plan.missing_secrets = secrets.missing(p.secret_refs().iter().map(String::as_str));
         Ok(plan)
     }
 
-    fn add_identity(&mut self, p: &ResolvedProfile, secrets: &Secrets) {
+    fn add_identity(&mut self, p: &ResolvedHat, secrets: &Secrets) {
         if let Some(n) = &p.identity.name {
             self.set.insert("GIT_AUTHOR_NAME".into(), n.clone());
             self.set.insert("GIT_COMMITTER_NAME".into(), n.clone());
@@ -131,7 +128,7 @@ impl EnvPlan {
         }
     }
 
-    fn add_aws(&mut self, p: &ResolvedProfile) {
+    fn add_aws(&mut self, p: &ResolvedHat) {
         if let Some(profile) = &p.aws.profile {
             self.set.insert("AWS_PROFILE".into(), profile.clone());
         }
@@ -141,13 +138,13 @@ impl EnvPlan {
         }
     }
 
-    fn add_env(&mut self, p: &ResolvedProfile, secrets: &Secrets) {
+    fn add_env(&mut self, p: &ResolvedHat, secrets: &Secrets) {
         for (k, v) in &p.env {
             self.set.insert(k.clone(), resolve(v, secrets));
         }
     }
 
-    /// Keys this plan actually exports, for tests and `hats profile show`.
+    /// Keys this plan actually exports, for tests and `hats hat show`.
     pub fn exported(&self) -> Vec<&str> {
         self.set.keys().map(String::as_str).collect()
     }
@@ -193,7 +190,7 @@ pub(crate) mod testkit {
 
     pub const PROFILES: &str = r##"
 identity: { name: Jane, email: jane@example.com }
-profiles:
+hats:
   normal:
     colour: "#2a2040"
     identity: { signing_key: { secret: git_signing_key } }
@@ -273,8 +270,8 @@ mod tests {
         assert_eq!(p.set["EDITOR"], "code --wait");
     }
 
-    /// The regression guard: switching to a profile that sets none of the
-    /// previous profile's variables must still clear them.
+    /// The regression guard: switching to a hat that sets none of the
+    /// previous hat's variables must still clear them.
     #[test]
     fn the_unset_list_covers_variables_this_profile_never_sets() {
         let p = plan("normal", EnvOptions::default());
@@ -296,9 +293,8 @@ mod tests {
     fn the_profile_marker_is_set_last_and_cannot_be_overwritten() {
         let p = plan("acme", EnvOptions::default());
         let keys = p.exported();
-        assert_eq!(keys[keys.len() - 2], "HATS_PROFILE");
-        assert_eq!(keys[keys.len() - 1], "DEV_PROFILE");
-        assert_eq!(p.set["HATS_PROFILE"], "acme");
+        assert_eq!(keys[keys.len() - 1], "HATS_HAT");
+        assert_eq!(p.set["HATS_HAT"], "acme");
     }
 
     #[test]

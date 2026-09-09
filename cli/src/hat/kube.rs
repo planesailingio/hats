@@ -3,19 +3,19 @@
 //! `kubectl config use-context` writes to whatever `$KUBECONFIG` points at. If
 //! that is the shared `~/.kube/config`, a context switch in one terminal
 //! silently changes every other terminal, which is the incident the whole
-//! system exists to prevent. Each profile therefore gets its own copy, seeded
+//! system exists to prevent. Each hat therefore gets its own copy, seeded
 //! once from the shared file.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-/// Where a profile's own kubeconfig lives.
-pub fn config_path(home: &Path, profile: &str) -> PathBuf {
-    home.join(".kube").join(format!("config.{profile}"))
+/// Where a hat's own kubeconfig lives.
+pub fn config_path(home: &Path, hat: &str) -> PathBuf {
+    home.join(".kube").join(format!("config.{hat}"))
 }
 
-/// The shared config a per-profile copy is seeded from, with symlinks resolved.
+/// The shared config a per-hat copy is seeded from, with symlinks resolved.
 ///
 /// Resolving matters: on this machine `~/.kube/config` is a symlink to a k3s
 /// file, and copying the link rather than its target would produce a config
@@ -26,7 +26,7 @@ fn shared_config(home: &Path) -> Option<PathBuf> {
     resolved.is_file().then_some(resolved)
 }
 
-/// Give this profile its own kubeconfig, seeding it the first time.
+/// Give this hat its own kubeconfig, seeding it the first time.
 ///
 /// Returns the path to use as `$KUBECONFIG`. Seeding is deliberately one-shot:
 /// a later edit to the shared config does not propagate, which is a documented
@@ -116,7 +116,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), SAMPLE);
     }
 
-    /// The property the whole design rests on: writing to one profile's config
+    /// The property the whole design rests on: writing to one hat's config
     /// must not touch another's, nor the shared file.
     #[test]
     fn two_profiles_cannot_see_each_others_writes() {

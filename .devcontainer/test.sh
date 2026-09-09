@@ -31,16 +31,16 @@ cat > "${ANSWERS}" <<'ANSWERS_EOF'
 answers:
   identity.name: Test User
   identity.email: test@example.com
-  profile.1.name: personal
-  profile.1.aws_profile: default
-  profile.1.kube_context: ""
-  profile.add.2: true
-  profile.2.name: client
-  profile.2.git_name: Test Client
-  profile.2.git_email: test@client.example
-  profile.2.aws_profile: client-account
-  profile.2.kube_context: client
-  profile.add.3: false
+  hat.1.name: personal
+  hat.1.aws_profile: default
+  hat.1.kube_context: ""
+  hat.add.2: true
+  hat.2.name: client
+  hat.2.git_name: Test Client
+  hat.2.git_email: test@client.example
+  hat.2.aws_profile: client-account
+  hat.2.kube_context: client
+  hat.add.3: false
   secrets.enabled: false
 ANSWERS_EOF
 

@@ -1,7 +1,7 @@
 //! `hats init` — set hats up on a machine.
 //!
 //! Clone the dotfiles repo into `~/.hats/repo`, ask which groups of files to
-//! manage, walk a loop collecting profiles until the user says stop, ask how
+//! manage, walk a loop collecting hats until the user says stop, ask how
 //! secrets should be fetched, then write `~/.hats/config.yaml` and print the
 //! command list.
 //!
@@ -17,13 +17,13 @@ use crate::cli::InitArgs;
 use crate::config::local::{
     BitwardenConfig, EnvelopeConfig, EnvelopeMethod, LocalConfig, ProviderKind,
 };
-use crate::config::profile::{AwsSpec, IdentitySpec, KubeSpec, ProfileSpec};
+use crate::config::hat::{AwsSpec, IdentitySpec, KubeSpec, HatSpec};
 use crate::config::repo::RepoConfig;
 
 /// Default clone URL. Overridable with `--repo`, and asked for interactively.
 const DEFAULT_REPO: &str = "https://github.com/planesailingio/hats.git";
 
-/// Suggested tints, cycled through as profiles are added. Purple for personal,
+/// Suggested tints, cycled through as hats are added. Purple for personal,
 /// then colours distinct enough to tell apart at a glance in a wall of panes.
 const PALETTE: &[&str] = &["#2a2040", "#331420", "#0d2a52", "#0d3a2a", "#3a2f0d"];
 
@@ -44,18 +44,18 @@ pub fn run(app: &mut App, args: &InitArgs) -> Result<()> {
 
     let identity = ask_identity(app)?;
     let groups = ask_groups(app, &manifest)?;
-    let profiles = ask_profiles(app, &identity)?;
+    let hats = ask_hats(app, &identity)?;
     let secrets = ask_secrets(app)?;
 
-    let default_profile = profiles.keys().next().cloned();
+    let default_hat = hats.keys().next().cloned();
     let cfg = LocalConfig {
-        hats: crate::config::local::LocalMeta {
+        meta: crate::config::local::LocalMeta {
             repo: Some(url),
-            default_profile,
+            default_hat,
         },
         identity: Some(identity),
         groups,
-        profiles,
+        hats,
         secrets,
         machine: IndexMap::new(),
     };
@@ -105,7 +105,7 @@ fn clone_repo(app: &mut App, args: &InitArgs) -> Result<String> {
 fn ask_identity(app: &mut App) -> Result<IdentitySpec> {
     app.ui.heading("Who are you?");
     app.ui
-        .say("Used as the fallback identity for profiles that do not override it.");
+        .say("Used as the fallback identity for hats that do not override it.");
     let name = app
         .ui
         .prompter
@@ -124,7 +124,7 @@ fn ask_identity(app: &mut App) -> Result<IdentitySpec> {
 fn ask_groups(app: &mut App, manifest: &RepoConfig) -> Result<IndexMap<String, bool>> {
     app.ui.heading("Which configuration should hats manage?");
     app.ui
-        .say("Every profile gets the same set of files; this is asked once.");
+        .say("Every hat gets the same set of files; this is asked once.");
 
     let mut answers = IndexMap::new();
     for (name, spec) in &manifest.groups {
@@ -138,23 +138,23 @@ fn ask_groups(app: &mut App, manifest: &RepoConfig) -> Result<IndexMap<String, b
     Ok(answers)
 }
 
-/// Collect profiles, prompting for another name until the user declines.
-fn ask_profiles(app: &mut App, identity: &IdentitySpec) -> Result<IndexMap<String, ProfileSpec>> {
+/// Collect hats, prompting for another name until the user declines.
+fn ask_hats(app: &mut App, identity: &IdentitySpec) -> Result<IndexMap<String, HatSpec>> {
     app.ui.heading("Profiles");
     app.ui.say(
         "One per context you switch between: personal, and one per client. \
-         The first is the profile new shells start in.",
+         The first is the hat new shells start in.",
     );
 
-    let mut profiles: IndexMap<String, ProfileSpec> = IndexMap::new();
+    let mut hats: IndexMap<String, HatSpec> = IndexMap::new();
     let mut n = 0usize;
 
     loop {
         n += 1;
         if n > 1 {
             let more = app.ui.prompter.confirm(
-                &format!("profile.add.{n}"),
-                "Add another profile?",
+                &format!("hat.add.{n}"),
+                "Add another hat?",
                 false,
             )?;
             if !more {
@@ -167,7 +167,7 @@ fn ask_profiles(app: &mut App, identity: &IdentitySpec) -> Result<IndexMap<Strin
             .ui
             .prompter
             .text(
-                &format!("profile.{n}.name"),
+                &format!("hat.{n}.name"),
                 "Profile name",
                 Some(default_name),
             )?
@@ -175,17 +175,17 @@ fn ask_profiles(app: &mut App, identity: &IdentitySpec) -> Result<IndexMap<Strin
             .to_string();
 
         if name.is_empty() {
-            if profiles.is_empty() {
-                bail!("at least one profile is needed; hats has nothing to switch between");
+            if hats.is_empty() {
+                bail!("at least one hat is needed; hats has nothing to switch between");
             }
             break;
         }
-        if profiles.contains_key(&name) {
-            bail!("profile `{name}` was given twice");
+        if hats.contains_key(&name) {
+            bail!("hat `{name}` was given twice");
         }
 
-        let spec = ask_one_profile(app, n, &name, identity, &profiles)?;
-        profiles.insert(name, spec);
+        let spec = ask_one_hat(app, n, &name, identity, &hats)?;
+        hats.insert(name, spec);
 
         // Guard against a runaway loop when an answers file keeps saying yes.
         if n >= 32 {
@@ -193,25 +193,25 @@ fn ask_profiles(app: &mut App, identity: &IdentitySpec) -> Result<IndexMap<Strin
         }
     }
 
-    if profiles.is_empty() {
-        bail!("at least one profile is needed; hats has nothing to switch between");
+    if hats.is_empty() {
+        bail!("at least one hat is needed; hats has nothing to switch between");
     }
-    Ok(profiles)
+    Ok(hats)
 }
 
-fn ask_one_profile(
+fn ask_one_hat(
     app: &mut App,
     n: usize,
     name: &str,
     identity: &IdentitySpec,
-    existing: &IndexMap<String, ProfileSpec>,
-) -> Result<ProfileSpec> {
+    existing: &IndexMap<String, HatSpec>,
+) -> Result<HatSpec> {
     // Profiles after the first usually inherit the base, which is what makes
-    // "same identity, different cloud account" a two-line profile.
+    // "same identity, different cloud account" a two-line hat.
     let inherits = match existing.keys().next() {
         Some(base) if n > 1 => {
             let yes = app.ui.prompter.confirm(
-                &format!("profile.{n}.inherits"),
+                &format!("hat.{n}.inherits"),
                 &format!("Inherit defaults from `{base}`?"),
                 true,
             )?;
@@ -224,32 +224,32 @@ fn ask_one_profile(
     let default_git_email = identity.email.clone().unwrap_or_default();
 
     let git_name = app.ui.prompter.text(
-        &format!("profile.{n}.git_name"),
+        &format!("hat.{n}.git_name"),
         &format!("[{name}] git name"),
         Some(&default_git_name),
     )?;
     let git_email = app.ui.prompter.text(
-        &format!("profile.{n}.git_email"),
+        &format!("hat.{n}.git_email"),
         &format!("[{name}] git email"),
         Some(&default_git_email),
     )?;
     let aws_profile = app.ui.prompter.text(
-        &format!("profile.{n}.aws_profile"),
+        &format!("hat.{n}.aws_profile"),
         &format!("[{name}] AWS profile (blank for none)"),
         Some(if n == 1 { "default" } else { name }),
     )?;
     let aws_region = app.ui.prompter.text(
-        &format!("profile.{n}.aws_region"),
+        &format!("hat.{n}.aws_region"),
         &format!("[{name}] AWS region (blank for none)"),
         Some("eu-west-2"),
     )?;
     let kube_context = app.ui.prompter.text(
-        &format!("profile.{n}.kube_context"),
+        &format!("hat.{n}.kube_context"),
         &format!("[{name}] kube context (blank for none)"),
         Some(if n == 1 { "" } else { name }),
     )?;
     let colour = app.ui.prompter.text(
-        &format!("profile.{n}.colour"),
+        &format!("hat.{n}.colour"),
         &format!("[{name}] terminal tint"),
         Some(PALETTE[(n - 1) % PALETTE.len()]),
     )?;
@@ -271,7 +271,7 @@ fn ask_one_profile(
         signing_key: None,
     };
 
-    Ok(ProfileSpec {
+    Ok(HatSpec {
         inherits,
         description: None,
         colour: non_empty(colour),
@@ -413,20 +413,38 @@ fn report_missed_answers(app: &App) {
 
 fn print_next_steps(app: &App, cfg: &LocalConfig) {
     app.ui.heading("Ready");
-    let names: Vec<&str> = cfg.profiles.keys().map(String::as_str).collect();
+    let names: Vec<&str> = cfg.hats.keys().map(String::as_str).collect();
     app.ui.say(format!("Profiles: {}", names.join(", ")));
-    app.ui.say(format!("Default:  {}", cfg.default_profile()));
+    app.ui.say(format!("Default:  {}", cfg.default_hat()));
     app.ui.say("");
     app.ui.say("Next:");
     app.ui
         .say("  hats plan                 preview what would change in your home directory");
     app.ui.say("  hats apply                write the files");
-    app.ui
-        .say("  eval \"$(hats shell-init zsh)\"   add the `profile` switcher to your shell");
     if cfg.secrets.provider != ProviderKind::None {
         app.ui
             .say("  hats secrets fetch        pull tokens into ~/.hats/secrets.yaml");
     }
+    app.ui.say("");
+
+    // The switcher is a shell function, so it only exists in shells started
+    // after apply. Saying so here heads off the obvious first attempt --
+    // `hats hat <name>`, which is a clap error rather than a switch.
+    app.ui.say("Then open a new terminal and switch it with:");
+    app.ui.say(format!(
+        "  hat {:<17} or plain `hat` to pick from a list",
+        cfg.default_hat()
+    ));
+    app.ui
+        .say("  hats hat current      which hat this shell is on");
+    app.ui.say("");
+    app.ui
+        .say("`hat` is a shell function rather than a hats subcommand: only");
+    app.ui
+        .say("your own shell can change its own environment. It arrives with the");
+    app.ui
+        .say("files, so it exists in shells started after the apply.");
+    app.ui.say("");
     app.ui.say("  hats --help               everything else");
 }
 

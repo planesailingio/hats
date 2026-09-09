@@ -26,7 +26,7 @@ repos:
 
   - repo: local
     hooks:
-      # The manifest, the templates and the profiles are as much a part of the
+      # The manifest, the templates and the hats are as much a part of the
       # product as the Rust, and a broken one is only caught at apply time
       # otherwise.
       - id: cargo-fmt

@@ -6,7 +6,7 @@
 //! second code path to drift.
 //!
 //! Questions are addressed by a stable dotted `key` (`groups.shell`,
-//! `profile.1.email`). The key is what an answers file matches on, so
+//! `hat.1.email`). The key is what an answers file matches on, so
 //! rewording a prompt never invalidates a fixture.
 
 use std::collections::BTreeMap;
@@ -65,7 +65,7 @@ impl Prompter for Interactive {
 /// ```yaml
 /// answers:
 ///   groups.shell: true
-///   profile.1.name: normal
+///   hat.1.name: normal
 /// ```
 #[derive(Debug, Default)]
 pub struct Answers {
@@ -250,10 +250,10 @@ mod tests {
 
     #[test]
     fn recorded_answers_win_over_defaults() {
-        let mut a = answers_from("answers:\n  groups.shell: false\n  profile.1.name: work\n");
+        let mut a = answers_from("answers:\n  groups.shell: false\n  hat.1.name: work\n");
         assert!(!a.confirm("groups.shell", "shell?", true).unwrap());
         assert_eq!(
-            a.text("profile.1.name", "name?", Some("normal")).unwrap(),
+            a.text("hat.1.name", "name?", Some("normal")).unwrap(),
             "work"
         );
     }

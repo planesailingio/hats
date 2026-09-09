@@ -222,11 +222,11 @@ pub fn plan(opts: &PlanOptions<'_>) -> Result<Plan> {
     };
     summary.hooks = hooks.len();
 
-    // Every secret any profile refers to, plus the ones the repo declares.
+    // Every secret any hat refers to, plus the ones the repo declares.
     let mut wanted: std::collections::BTreeSet<String> =
         opts.cfg.repo.secrets.required.iter().cloned().collect();
-    for name in opts.cfg.profiles().keys() {
-        if let Ok(p) = opts.cfg.resolve_profile(name) {
+    for name in opts.cfg.hats().keys() {
+        if let Ok(p) = opts.cfg.resolve_hat(name) {
             wanted.extend(p.secret_refs());
         }
     }

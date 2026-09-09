@@ -48,7 +48,7 @@ secrets:
 
     const LOCAL: &str = r#"
 identity: { name: Jane, email: jane@example.com }
-profiles:
+hats:
   normal:
     env:
       TOK: { secret: jira_token }

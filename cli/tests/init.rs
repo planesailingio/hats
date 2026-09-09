@@ -68,23 +68,23 @@ answers:
   groups.theme: true
   groups.extras: false
 
-  profile.1.name: normal
-  profile.1.aws_profile: default
-  profile.1.aws_region: eu-west-2
-  profile.1.kube_context: ""
-  profile.1.colour: "#2a2040"
+  hat.1.name: normal
+  hat.1.aws_profile: default
+  hat.1.aws_region: eu-west-2
+  hat.1.kube_context: ""
+  hat.1.colour: "#2a2040"
 
-  profile.add.2: true
-  profile.2.name: acme
-  profile.2.inherits: true
-  profile.2.git_name: Jane Doe
-  profile.2.git_email: jane.doe@acme.example
-  profile.2.aws_profile: acme-aws
-  profile.2.aws_region: eu-west-2
-  profile.2.kube_context: acme
-  profile.2.colour: "#331420"
+  hat.add.2: true
+  hat.2.name: acme
+  hat.2.inherits: true
+  hat.2.git_name: Jane Doe
+  hat.2.git_email: jane.doe@acme.example
+  hat.2.aws_profile: acme-aws
+  hat.2.aws_region: eu-west-2
+  hat.2.kube_context: acme
+  hat.2.colour: "#331420"
 
-  profile.add.3: false
+  hat.add.3: false
 
   secrets.enabled: true
   secrets.provider: bitwarden
@@ -122,10 +122,9 @@ impl Env {
             .arg(&self.home)
             .arg("--no-color")
             .arg("--allow-mismatch")
-            // Never inherit the developer's own profile state into a test.
-            .env_remove("HATS_PROFILE")
-            .env_remove("DEV_PROFILE")
-            .env_remove("HATS_HOME")
+            // Never inherit the developer's own hat state into a test.
+            .env_remove("HATS_HAT")
+                        .env_remove("HATS_HOME")
             .env_remove("HATS_DEV");
         c
     }
@@ -179,7 +178,7 @@ fn the_wizard_records_every_answer_it_was_given() {
     assert!(cfg.contains("shell: true"));
     assert!(cfg.contains("extras: false"));
 
-    // Both profiles, with inheritance and the per-profile overrides.
+    // Both hats, with inheritance and the per-hat overrides.
     assert!(cfg.contains("normal:"));
     assert!(cfg.contains("acme:"));
     assert!(cfg.contains("inherits: normal"));
@@ -201,10 +200,10 @@ fn the_wizard_records_every_answer_it_was_given() {
 }
 
 #[test]
-fn the_first_profile_becomes_the_default() {
+fn the_first_hat_becomes_the_default() {
     let env = Env::new(Some("v0.1.0"));
     env.init().assert().success();
-    assert!(env.config_text().contains("default_profile: normal"));
+    assert!(env.config_text().contains("default_hat: normal"));
 }
 
 #[test]
@@ -219,12 +218,12 @@ fn init_refuses_to_clobber_an_existing_setup_without_force() {
 }
 
 #[test]
-fn profile_list_shows_what_was_configured() {
+fn hat_list_shows_what_was_configured() {
     let env = Env::new(Some("v0.1.0"));
     env.init().assert().success();
 
     env.hats()
-        .args(["profile", "list"])
+        .args(["hat", "list"])
         .assert()
         .success()
         .stdout(predicate::str::contains("normal").and(predicate::str::contains("acme")));
@@ -232,7 +231,7 @@ fn profile_list_shows_what_was_configured() {
     // --plain is what fzf and shell completion consume: names only.
     let out = env
         .hats()
-        .args(["profile", "list", "--plain"])
+        .args(["hat", "list", "--plain"])
         .output()
         .unwrap();
     let names: Vec<&str> = std::str::from_utf8(&out.stdout).unwrap().lines().collect();
@@ -240,12 +239,12 @@ fn profile_list_shows_what_was_configured() {
 }
 
 #[test]
-fn profile_show_folds_the_inheritance_chain() {
+fn hat_show_folds_the_inheritance_chain() {
     let env = Env::new(Some("v0.1.0"));
     env.init().assert().success();
 
     env.hats()
-        .args(["profile", "show", "acme"])
+        .args(["hat", "show", "acme"])
         .assert()
         .success()
         // Overridden on the child.
@@ -256,11 +255,11 @@ fn profile_show_folds_the_inheritance_chain() {
 }
 
 #[test]
-fn profile_show_names_a_profile_that_does_not_exist() {
+fn hat_show_names_a_hat_that_does_not_exist() {
     let env = Env::new(Some("v0.1.0"));
     env.init().assert().success();
     env.hats()
-        .args(["profile", "show", "ghost"])
+        .args(["hat", "show", "ghost"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("ghost"))
@@ -268,14 +267,14 @@ fn profile_show_names_a_profile_that_does_not_exist() {
 }
 
 /// The regression guard for the original `_profile_reset` leak: a variable set
-/// by one profile must be unset when switching to a profile that does not set
+/// by one hat must be unset when switching to a hat that does not set
 /// it.
 #[test]
-fn the_reset_list_covers_variables_from_every_profile() {
+fn the_reset_list_covers_variables_from_every_hat() {
     let env = Env::new(Some("v0.1.0"));
     env.init().assert().success();
 
-    let out = env.hats().args(["profile", "reset-list"]).output().unwrap();
+    let out = env.hats().args(["hat", "reset-list"]).output().unwrap();
     let keys: Vec<&str> = std::str::from_utf8(&out.stdout).unwrap().lines().collect();
 
     for expected in [
@@ -284,8 +283,7 @@ fn the_reset_list_covers_variables_from_every_profile() {
         "AWS_DEFAULT_REGION",
         "GIT_AUTHOR_EMAIL",
         "GIT_COMMITTER_NAME",
-        "HATS_PROFILE",
-        "DEV_PROFILE",
+        "HATS_HAT",
         "KUBECONFIG",
     ] {
         assert!(
@@ -303,7 +301,7 @@ fn doctor_passes_on_a_freshly_initialised_machine() {
         .arg("doctor")
         .assert()
         .success()
-        .stdout(predicate::str::contains("2 profiles"))
+        .stdout(predicate::str::contains("2 hats"))
         .stdout(predicate::str::contains("resolve cleanly"));
 }
 
@@ -381,7 +379,7 @@ fn a_repo_with_a_newer_schema_is_refused_with_an_upgrade_hint() {
     env.init().assert().success();
     std::fs::write(env.home.join("repo/hats.yaml"), "hats:\n  schema: 99\n").unwrap();
     env.hats()
-        .args(["profile", "list"])
+        .args(["hat", "list"])
         .assert()
         .failure()
         .stderr(predicate::str::contains("brew upgrade hats"));

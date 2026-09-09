@@ -1,6 +1,6 @@
 //! hats — one laptop, many hats.
 //!
-//! A single binary that owns a dotfiles repo and the per-shell client profiles
+//! A single binary that owns a dotfiles repo and the per-shell client hats
 //! layered on top of it. It replaces chezmoi, a Makefile, six `run_` scripts and
 //! a pile of hand-written zsh.
 //!
@@ -13,7 +13,7 @@
 //! 4. Put the active context in the prompt, and colour production red.
 //!
 //! Rule 3 used to be a hand-maintained list that drifted. Here the unset list is
-//! derived from the union of every profile's keys, so it cannot.
+//! derived from the union of every hat's keys, so it cannot.
 
 pub mod app;
 pub mod cli;
@@ -25,7 +25,7 @@ pub mod hooks;
 pub mod model;
 pub mod paths;
 pub mod platform;
-pub mod profile;
+pub mod hat;
 pub mod repo;
 pub mod secrets;
 pub mod ui;

@@ -20,7 +20,7 @@ edits a file that every terminal on the machine shares. So does
 `git config --global`. Switch client and you're updating four different
 mechanisms by hand, then checking all four before you type anything dangerous.
 
-**What hats does.** `profile acme` sets git identity, signing key, AWS
+**What hats does.** `hat acme` sets git identity, signing key, AWS
 profile, kube context, tokens, toolchain versions and the terminal's background
 tint — in *that shell only*. The window next door doesn't move.
 
@@ -108,10 +108,10 @@ hats init
 ```
 
 It clones the dotfiles into `~/.hats/repo`, asks which groups of files you want
-(shell, git, ssh, theme, toolchains…), then walks you through a profile at a
+(shell, git, ssh, theme, toolchains…), then walks you through a hat at a
 time: git name and email, AWS profile and region, kube context, terminal tint.
 Add as many as you have clients. The second and subsequent ones can inherit from
-the first, so "same me, different cloud account" is a two-line profile.
+the first, so "same me, different cloud account" is a two-line hat.
 
 Nothing has touched your home directory yet.
 
@@ -135,23 +135,61 @@ Files written, anything replaced is backed up first, setup hooks run.
 **5. Open a fresh terminal and put a hat on.**
 
 ```sh
-profile
+hat
 ```
 
-That's it — a fuzzy picker of your profiles, or name one directly. Set your
+That's it — a fuzzy picker of your hats, or name one directly. Set your
 terminal font to a [Nerd Font](https://www.nerdfonts.com/) so the prompt symbols
 render.
 
 > Configured a secrets backend in step 2? `hats secrets fetch` pulls your tokens
 > down. Anything not working? `hats doctor` will say what's missing.
 
+### Using it day to day
+
+Once it's set up, almost everything is these four:
+
+```sh
+hat                      # switch this terminal — picker, or `hat <name>`
+hats hat current         # which hat am I wearing?
+hats plan                # I changed a dotfile or my config — what would that do?
+hats apply               # do it
+```
+
+The rhythm is: **open a terminal, put a hat on, work.** New window for a
+different client means a new `hat` in that window. Nothing you do in one
+terminal reaches another, so you can leave a production shell open next to a
+personal one without them interfering.
+
+**Changing a hat** — new token, different AWS account, another client
+entirely — is an edit to the `hats:` block in `~/.hats/config.yaml`, then
+`hat <name>` again in any shell that needs it. No apply required: a switch
+reads the config fresh every time. (The top-level `identity:` block is the
+exception. It's the fallback that renders into `~/.gitconfig`, so changing that
+one does want a `hats apply`.)
+
+**Changing a dotfile** is the other direction: edit it in `~/.hats/repo`, then
+`hats plan` to see what would land and `hats apply` to write it. Open shells keep
+the old version until they're restarted, as with any dotfile.
+
+**Adding a token** is a change in your vault, not here: give the item a custom
+field called `hats`, then `hats secrets fetch` and reference it from a hat as
+`{ secret: <key> }`.
+
+> `hat` is a shell function rather than a hats subcommand, because no program
+> can change the environment of the shell that started it — it gets a copy that
+> dies with it. `hats shell-init zsh` installs the function from your `.zshrc`,
+> and `hats env <name>` prints what a switch would do without doing it. If
+> `hat` isn't found, you're in a shell that started before `hats apply` ran;
+> open a new one.
+
 ## What it looks like
 
 Put a hat on. One line back, telling you who you now are:
 
 ```console
-$ profile acme
-⛭ profile: acme  (git=jane.doe@acme.com  aws=acme-aws  kube=acme)
+$ hat acme
+⛭ hat: acme  (git=jane.doe@acme.com  aws=acme-aws  kube=acme)
 ```
 
 Then the answer stays in front of you permanently, and the kube context is
@@ -184,12 +222,12 @@ Plan: 1 to add, 1 to change, 1 to destroy, 0 permission changes; 1 hook to run.
 
 If that reads like `terraform plan`, good. That was the idea.
 
-## A profile is about ten lines
+## A hat is about ten lines
 
 `~/.hats/config.yaml`, machine-local, never in git:
 
 ```yaml
-profiles:
+hats:
   normal:
     colour: "#2a2040"
     identity: { name: Jane, email: jane@example.com }
@@ -205,7 +243,7 @@ profiles:
 ```
 
 `inherits` folds the parent in, so a child records only the *difference*. Each
-profile gets its own copy of `~/.kube/config` by default — that's rule 2, below —
+hat gets its own copy of `~/.kube/config` by default — that's rule 2, below —
 so a stray `use-context` can only ever affect the shell that ran it. And
 `{ secret: ... }` is a reference, not a value: the token itself never goes near
 this file.
@@ -219,11 +257,11 @@ this file.
 4. **Put the active context in your prompt**, and colour production red.
 
 Rule 3 is the one that bites, and it's the reason a hand-written reset list
-doesn't work: the list has to be updated every time any profile gains a
+doesn't work: the list has to be updated every time any hat gains a
 variable, and eventually it isn't. A forgotten `AWS_PROFILE` or Jira token then
 survives every switch, silently, until something notices.
 
-hats derives the reset list from the union of every profile's variables, so a
+hats derives the reset list from the union of every hat's variables, so a
 variable added anywhere joins it automatically. The class of bug is gone rather
 than fixed — which is the standard the rest of this holds itself to.
 
@@ -238,24 +276,24 @@ Five of them cover almost every day:
 
 | | |
 |---|---|
-| `profile [name]` | Switch this shell. No name gives you a picker. |
+| `hat [name]` | Switch this shell. No name gives you a picker. |
 | `hats plan` | What would change in your home directory |
 | `hats apply` | Do it |
 | `hats secrets fetch` | Pull your tokens down from the vault |
 | `hats doctor` | Check this machine has what hats needs |
 
 <details>
-<summary><b>The rest</b> — profiles, packages, maintenance, authoring</summary>
+<summary><b>The rest</b> — hats, packages, maintenance, authoring</summary>
 
 <br>
 
-**Profiles**
+**Hats**
 
 | | |
 |---|---|
-| `hats profile list` | Every profile, active one marked |
-| `hats profile show <name>` | One profile with its inheritance folded in |
-| `hats profile current` | Which hat this shell is wearing |
+| `hats hat list` | Every hat, active one marked |
+| `hats hat show <name>` | One hat with its inheritance folded in |
+| `hats hat current` | Which hat this shell is wearing |
 | `hats env <name>` | The shell code a switch would run, printed not executed |
 
 **Dotfiles**
@@ -265,7 +303,7 @@ Five of them cover almost every day:
 | `hats diff` | The diff alone, without the hook plan |
 | `hats render <file>` | Render one template and print it, or syntax-check it |
 | `hats hooks` | List the repo's hooks, or run one by name |
-| `hats lint` | Check the manifest, templates, profiles and shell scripts |
+| `hats lint` | Check the manifest, templates, hats and shell scripts |
 
 **Packages** — see [bundles](#package-bundles)
 
@@ -282,7 +320,7 @@ Five of them cover almost every day:
 | `hats update` | Move the repo to the tag matching this binary |
 | `hats version` | Binary tag, repo tag, and whether they agree |
 | `hats test` | Prove the switcher works: real commits, real shells |
-| `hats shell-init zsh` | The `profile` function and its completion |
+| `hats shell-init zsh` | The `hat` function and its completion |
 | `hats completions <shell>` | Completion script for hats itself |
 
 </details>
@@ -325,7 +363,7 @@ new bundle means touching three places: `brew/`, `BrewBundle` in
 ## Secrets
 
 Tokens come from Bitwarden — or a self-hosted Vaultwarden — into a single
-`~/.hats/secrets.yaml` at mode 0600. Shells read that file, so switching profile
+`~/.hats/secrets.yaml` at mode 0600. Shells read that file, so switching hat
 stays instant and works on a train.
 
 Items are found **by label, not by name**: give a vault item a custom field
@@ -356,10 +394,10 @@ tell you.
 | `brew/` | The four package bundles. |
 | `hooks/` | Setup scripts (Homebrew, the bundles, zsh, macOS defaults, the Dock). |
 | `cli/` | The `hats` source, in Rust. |
-| `~/.hats/config.yaml` | **Your** profiles, identities and endpoints. Machine-local, never in git. |
+| `~/.hats/config.yaml` | **Your** hats, identities and endpoints. Machine-local, never in git. |
 | `~/.hats/secrets.yaml` | Fetched tokens, mode 0600. |
 
-Profiles are deliberately not in this repo. It ships defaults anyone can use;
+Hats are deliberately not in this repo. It ships defaults anyone can use;
 who you work for stays on your laptop.
 
 ## Version lockstep
@@ -382,7 +420,7 @@ behind.
 ```sh
 cargo test                  # unit, snapshot and integration tests
 cargo clippy --all-targets --all-features -- -D warnings
-hats lint                   # manifest, templates, profiles, shell scripts
+hats lint                   # manifest, templates, hats, shell scripts
 hats test --container       # the Linux suite, in Docker
 ```
 

@@ -4,10 +4,10 @@
 
 "$schema" = 'https://starship.rs/config-schema.json'
 
-# ╭─user@host path ‹branch status›  󱃖 profile  ☸ kube  aws  tf        dur  code ↵
+# ╭─user@host path ‹branch status›  󱃖 hat  ☸ kube  aws  tf        dur  code ↵
 # ╰─➤
 format = """
-╭─$username[@](cyan)$hostname $directory$git_branch$git_status${custom.profile}$kubernetes$aws$terraform
+╭─$username[@](cyan)$hostname $directory$git_branch$git_status${custom.hat}$kubernetes$aws$terraform
 ╰─$character"""
 
 right_format = "$cmd_duration$status"
@@ -43,12 +43,12 @@ format = " [‹$branch]($style)"
 style = "yellow"
 format = "[$all_status$ahead_behind›]($style)"
 
-# ── Client profile indicator (reads $DEV_PROFILE set by `profile`) ────────────
-[custom.profile]
-command = 'printf "%s" "${HATS_PROFILE:-${DEV_PROFILE:-normal}}"'
+# ── Hat indicator (reads $HATS_HAT, set by `hat`) ─────────────────────────────
+[custom.hat]
+command = 'printf "%s" "${HATS_HAT:-normal}"'
 when = true
 shell = ["sh", "--norc"]
-description = "active client profile"
+description = "the hat this shell is wearing"
 format = " [󱃖 $output]($style)"
 style = "mauve"
 

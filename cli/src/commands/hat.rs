@@ -1,4 +1,4 @@
-//! `hats profile` — inspect the profiles configured on this machine.
+//! `hats hat` — inspect the hats configured on this machine.
 //!
 //! Switching a shell's environment is `hats env` plus the shell integration
 //! (a child process cannot mutate its parent's environment). This command is
@@ -7,39 +7,39 @@
 use anyhow::{Context, Result};
 
 use crate::app::App;
-use crate::cli::{ProfileArgs, ProfileCommand};
+use crate::cli::{HatArgs, HatCommand};
 use crate::config::Config;
 
-pub fn run(app: &mut App, args: &ProfileArgs) -> Result<()> {
+pub fn run(app: &mut App, args: &HatArgs) -> Result<()> {
     let cfg = app.config()?;
     match args.command.as_ref() {
-        None | Some(ProfileCommand::List { plain: false }) => list(app, &cfg, false),
-        Some(ProfileCommand::List { plain: true }) => list(app, &cfg, true),
-        Some(ProfileCommand::Show { name, json }) => show(app, &cfg, name, *json),
-        Some(ProfileCommand::Current { summary }) => current(app, &cfg, *summary),
-        Some(ProfileCommand::ResetList) => reset_list(app, &cfg),
+        None | Some(HatCommand::List { plain: false }) => list(app, &cfg, false),
+        Some(HatCommand::List { plain: true }) => list(app, &cfg, true),
+        Some(HatCommand::Show { name, json }) => show(app, &cfg, name, *json),
+        Some(HatCommand::Current { summary }) => current(app, &cfg, *summary),
+        Some(HatCommand::ResetList) => reset_list(app, &cfg),
     }
 }
 
 fn list(app: &App, cfg: &Config, plain: bool) -> Result<()> {
-    let active = active_profile();
-    let default = cfg.local.default_profile();
+    let active = active_hat();
+    let default = cfg.local.default_hat();
 
     if plain {
         // Consumed by fzf and by shell completion: names only, nothing else.
-        for name in cfg.profile_names() {
+        for name in cfg.hat_names() {
             app.ui.say(name);
         }
         return Ok(());
     }
 
-    if cfg.profiles().is_empty() {
-        app.ui.warn("no profiles configured. Run `hats init`.");
+    if cfg.hats().is_empty() {
+        app.ui.warn("no hats configured. Run `hats init`.");
         return Ok(());
     }
 
-    for name in cfg.profile_names() {
-        let resolved = cfg.resolve_profile(&name);
+    for name in cfg.hat_names() {
+        let resolved = cfg.resolve_hat(&name);
         let marker = match (&active, name == default) {
             (Some(a), _) if *a == name => "*",
             (_, true) => "·",
@@ -71,19 +71,19 @@ fn list(app: &App, cfg: &Config, plain: bool) -> Result<()> {
 
 fn show(app: &App, cfg: &Config, name: &str, json: bool) -> Result<()> {
     let p = cfg
-        .resolve_profile(name)
-        .with_context(|| format!("resolving profile `{name}`"))?;
+        .resolve_hat(name)
+        .with_context(|| format!("resolving hat `{name}`"))?;
 
     if json {
         app.ui.say(serde_json::to_string_pretty(&p)?);
         return Ok(());
     }
 
-    app.ui.say(format!("profile   {}", p.name));
+    app.ui.say(format!("hat       {}", p.name));
     if let Some(d) = &p.description {
         app.ui.say(format!("about     {d}"));
     }
-    if let Some(spec) = cfg.profiles().get(name)
+    if let Some(spec) = cfg.hats().get(name)
         && let Some(parent) = &spec.inherits
     {
         app.ui.say(format!("inherits  {parent}"));
@@ -120,7 +120,7 @@ fn show(app: &App, cfg: &Config, name: &str, json: bool) -> Result<()> {
             let shown = match v.secret_ref() {
                 Some(s) => format!("«secret:{s}»"),
                 None => match v {
-                    crate::config::profile::EnvValue::Literal(l) => l.clone(),
+                    crate::config::hat::EnvValue::Literal(l) => l.clone(),
                     _ => unreachable!(),
                 },
             };
@@ -131,9 +131,9 @@ fn show(app: &App, cfg: &Config, name: &str, json: bool) -> Result<()> {
 }
 
 fn current(app: &App, cfg: &Config, summary: bool) -> Result<()> {
-    let Some(name) = active_profile() else {
+    let Some(name) = active_hat() else {
         app.ui
-            .say("no profile active in this shell. Run `profile <name>`.");
+            .say("no hat on in this shell. Run `hat <name>`.");
         return Ok(());
     };
 
@@ -146,18 +146,18 @@ fn current(app: &App, cfg: &Config, summary: bool) -> Result<()> {
     let git = std::env::var("GIT_AUTHOR_EMAIL").unwrap_or_else(|_| "-".into());
     let aws = std::env::var("AWS_PROFILE").unwrap_or_else(|_| "-".into());
     let kube = cfg
-        .resolve_profile(&name)
+        .resolve_hat(&name)
         .ok()
         .and_then(|p| p.kube.context)
         .unwrap_or_else(|| "-".into());
     app.ui.say(format!(
-        "⛭ profile: {name}  (git={git}  aws={aws}  kube={kube})"
+        "⛭ hat: {name}  (git={git}  aws={aws}  kube={kube})"
     ));
     Ok(())
 }
 
 fn reset_list(app: &App, cfg: &Config) -> Result<()> {
-    // The union across every profile: this is what makes the old
+    // The union across every hat: this is what makes the old
     // `_profile_reset` leak impossible.
     for key in cfg.all_env_keys() {
         app.ui.say(key);
@@ -165,13 +165,9 @@ fn reset_list(app: &App, cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-/// The profile this shell is in. `HATS_PROFILE` is authoritative; `DEV_PROFILE`
-/// is honoured so a shell started before the migration still reports correctly.
-fn active_profile() -> Option<String> {
-    std::env::var("HATS_PROFILE")
-        .or_else(|_| std::env::var("DEV_PROFILE"))
-        .ok()
-        .filter(|s| !s.is_empty())
+/// The hat this shell is wearing, from `HATS_HAT`.
+fn active_hat() -> Option<String> {
+    std::env::var("HATS_HAT").ok().filter(|s| !s.is_empty())
 }
 
 #[cfg(test)]
@@ -181,37 +177,20 @@ mod tests {
     /// One test, not several: the process environment is global, so separate
     /// tests mutating it would race under the default parallel runner.
     #[test]
-    fn active_profile_reads_hats_first_then_the_legacy_alias() {
+    fn active_hat_reads_hats_hat_and_treats_empty_as_unset() {
         // SAFETY: the whole environment dance is confined to this one test, so
         // no other test observes these variables.
         unsafe {
-            std::env::remove_var("HATS_PROFILE");
-            std::env::remove_var("DEV_PROFILE");
-            assert_eq!(
-                active_profile(),
-                None,
-                "nothing set means no active profile"
-            );
+            std::env::remove_var("HATS_HAT");
+            assert_eq!(active_hat(), None, "nothing set means no hat on");
 
-            std::env::set_var("HATS_PROFILE", "work");
-            std::env::set_var("DEV_PROFILE", "old");
-            assert_eq!(
-                active_profile().as_deref(),
-                Some("work"),
-                "HATS_PROFILE wins over the compatibility alias"
-            );
+            std::env::set_var("HATS_HAT", "work");
+            assert_eq!(active_hat().as_deref(), Some("work"));
 
-            std::env::remove_var("HATS_PROFILE");
-            assert_eq!(
-                active_profile().as_deref(),
-                Some("old"),
-                "a pre-migration shell still reports its profile"
-            );
+            std::env::set_var("HATS_HAT", "");
+            assert_eq!(active_hat(), None, "an empty value is not a hat");
 
-            std::env::set_var("DEV_PROFILE", "");
-            assert_eq!(active_profile(), None, "an empty value is not a profile");
-
-            std::env::remove_var("DEV_PROFILE");
+            std::env::remove_var("HATS_HAT");
         }
     }
 }
