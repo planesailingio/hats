@@ -1,0 +1,64 @@
+#  hats shell integration — add to ~/.zshrc with:
+#      eval "$(hats shell-init zsh)"
+#
+#  A child process cannot change its parent's environment, so `hat` runs
+#  `hats env` and evals the result. Everything the switch decides lives in the
+#  binary; this file is only the plumbing.
+
+# Switch this shell to a hat. With no argument, pick one with fzf.
+hat() {
+  local name="${1:-}"
+  if [ -z "$name" ]; then
+    if ! command -v fzf >/dev/null 2>&1; then
+      echo "hat: give a name, or install fzf for the picker" >&2
+      command hats hat list >&2
+      return 1
+    fi
+    name=$(command hats hat list --plain | fzf --prompt='hat > ' --height=40% --reverse) || return
+  fi
+  [ -n "$name" ] || return
+
+  # Capture first, eval second. A failed `hats env` writes nothing to stdout, so
+  # a broken config can never half-apply a hat to a live shell.
+  local script
+  script=$(command hats env "$name") || return
+  eval "$script"
+  command hats hat current --summary
+}
+
+# Complete hat names for `hat`.
+_hats_hats() {
+  local -a names
+  names=(${(f)"$(command hats hat list --plain 2>/dev/null)"})
+  compadd -- $names
+}
+compdef _hats_hats hat 2>/dev/null
+
+{% if env_bundles -%}
+# Environment bundles (dev/staging/prod) are orthogonal to hats:
+# a hat says who you are, a bundle says which environment you are pointing
+# at. Deliberately never automatic — prompting in every tmux pane is miserable.
+envp() {
+  local dir="$HOME/.env.d" choice
+  [ -d "$dir" ] || { echo "no ~/.env.d bundles" >&2; return 1; }
+  choice=$(ls "$dir"/*.zsh 2>/dev/null | xargs -n1 basename | sed 's/\.zsh$//' \
+    | fzf --prompt='env bundle > ' --height=40% --reverse) || return
+  [ -n "$choice" ] || return
+  # shellcheck disable=SC1090
+  source "$dir/$choice.zsh"
+  export ENV_PROFILE="$choice"
+  echo "→ $choice  (AWS_PROFILE=$AWS_PROFILE)"
+}
+{%- endif %}
+
+# Open the dotfiles checkout, and apply from anywhere.
+hats_edit() { ${EDITOR:-code} {{ repo_dir | sh_quote }}; }
+hats_apply() { command hats apply "$@"; }
+
+{% if default_hat -%}
+# Baseline for every new shell. Quiet and failure-tolerant: if hats is missing,
+# mid-upgrade, or unconfigured, the shell must still open normally.
+if [ -z "${HATS_HAT:-}" ]; then
+  eval "$(command hats env {{ default_hat | sh_quote }} --quiet 2>/dev/null)" || true
+fi
+{%- endif %}
