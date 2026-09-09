@@ -112,7 +112,7 @@ fn profile_checks(app: &App, cfg: &Config) -> Result<Vec<Check>> {
 
         let script = format!(
             "eval \"$({} --hats-home {} env {} --no-colour)\" && \
-             printf '%s|%s|%s' \"$HATS_HAT\" \"$GIT_AUTHOR_EMAIL\" \"$AWS_PROFILE\"",
+             printf '%s|%s|%s' \"$HATS_HAT\" \"$GIT_AUTHOR_EMAIL\" \"$AWS_CONFIG_FILE\"",
             shell_quote(&exe.to_string_lossy()),
             shell_quote(&app.paths.root.to_string_lossy()),
             shell_quote(&name),
@@ -127,7 +127,8 @@ fn profile_checks(app: &App, cfg: &Config) -> Result<Vec<Check>> {
                 let got = String::from_utf8_lossy(&o.stdout).to_string();
                 let parts: Vec<&str> = got.split('|').collect();
                 let want_email = resolved.identity.email.clone().unwrap_or_default();
-                let want_aws = resolved.aws.profile.clone().unwrap_or_default();
+                // Isolation means the path ends in this hat's own file.
+                let want_aws_suffix = format!("/{name}.config");
 
                 if parts.first() != Some(&name.as_str()) {
                     Verdict::Fail(format!(
@@ -139,9 +140,11 @@ fn profile_checks(app: &App, cfg: &Config) -> Result<Vec<Check>> {
                         "GIT_AUTHOR_EMAIL was {:?}, expected {want_email:?}",
                         parts.get(1)
                     ))
-                } else if parts.get(2).copied() != Some(want_aws.as_str()) {
+                } else if resolved.aws_isolated()
+                    && !parts.get(2).is_some_and(|p| p.ends_with(&want_aws_suffix))
+                {
                     Verdict::Fail(format!(
-                        "AWS_PROFILE was {:?}, expected {want_aws:?}",
+                        "AWS_CONFIG_FILE was {:?}, expected it to end {want_aws_suffix:?}",
                         parts.get(2)
                     ))
                 } else {

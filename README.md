@@ -21,8 +21,8 @@ edits a file that every terminal on the machine shares. So does
 mechanisms by hand, then checking all four before you type anything dangerous.
 
 **What hats does.** `hat acme` sets git identity, signing key, AWS
-profile, kube context, tokens, toolchain versions and the terminal's background
-tint — in *that shell only*. The window next door doesn't move.
+credentials, kube context, tokens, toolchain versions and the terminal's
+background tint — in *that shell only*. The window next door doesn't move.
 
 **The other half.** The dotfiles behind it are managed like infrastructure:
 `hats plan` shows a line-level diff of what would change in your home directory,
@@ -43,7 +43,7 @@ to keep the answer, or on how far it reaches.
 |---|---|---|
 | git | `~/.gitconfig` | every terminal |
 | kubectl | `~/.kube/config` | every terminal |
-| AWS CLI | `$AWS_PROFILE`, falling back to `~/.aws/config` | this shell, or every terminal |
+| AWS CLI | `~/.aws/config` and `~/.aws/credentials` | every terminal |
 | npm, pip | `~/.npmrc`, a configured index URL | every terminal |
 | node, python | whatever the version manager last made default | every terminal |
 | API tokens | wherever you last exported them | this shell, until you close it |
@@ -109,7 +109,7 @@ hats init
 
 It clones the dotfiles into `~/.hats/repo`, asks which groups of files you want
 (shell, git, ssh, theme, toolchains…), then walks you through a hat at a
-time: git name and email, AWS profile and region, kube context, terminal tint.
+time: git name and email, kube context, terminal tint.
 Add as many as you have clients. The second and subsequent ones can inherit from
 the first, so "same me, different cloud account" is a two-line hat.
 
@@ -189,7 +189,7 @@ Put a hat on. One line back, telling you who you now are:
 
 ```console
 $ hat acme
-⛭ hat: acme  (git=jane.doe@acme.com  aws=acme-aws  kube=acme)
+⛭ hat: acme  (git=jane.doe@acme.com  kube=acme)
 ```
 
 Then the answer stays in front of you permanently, and the kube context is
@@ -236,17 +236,20 @@ hats:
     inherits: normal
     colour: "#331420"
     identity: { email: jane.doe@acme.com }
-    aws:  { profile: acme-aws, region: eu-west-2 }
     kube: { context: acme }
     env:
       JIRA_TOKEN: { secret: acme/jira }
 ```
 
-`inherits` folds the parent in, so a child records only the *difference*. Each
-hat gets its own copy of `~/.kube/config` by default — that's rule 2, below —
-so a stray `use-context` can only ever affect the shell that ran it. And
+`inherits` folds the parent in, so a child records only the *difference*. And
 `{ secret: ... }` is a reference, not a value: the token itself never goes near
 this file.
+
+Notice there's no `aws:` block. Each hat gets its own `~/.kube/config` and its
+own `~/.aws/config` + `~/.aws/credentials` by default — that's rule 2, below —
+so a stray `use-context`, or an `aws sso login`, can only ever affect the shell
+that ran it. Turn either off per hat with `aws: { isolate: false }` or
+`kube: { isolate: false }`.
 
 ## The four rules it's built on
 

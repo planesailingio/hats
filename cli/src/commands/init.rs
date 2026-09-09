@@ -17,7 +17,7 @@ use crate::cli::InitArgs;
 use crate::config::local::{
     BitwardenConfig, EnvelopeConfig, EnvelopeMethod, LocalConfig, ProviderKind,
 };
-use crate::config::hat::{AwsSpec, IdentitySpec, KubeSpec, HatSpec};
+use crate::config::hat::{IdentitySpec, KubeSpec, HatSpec};
 use crate::config::repo::RepoConfig;
 
 /// Default clone URL. Overridable with `--repo`, and asked for interactively.
@@ -233,16 +233,6 @@ fn ask_one_hat(
         &format!("[{name}] git email"),
         Some(&default_git_email),
     )?;
-    let aws_profile = app.ui.prompter.text(
-        &format!("hat.{n}.aws_profile"),
-        &format!("[{name}] AWS profile (blank for none)"),
-        Some(if n == 1 { "default" } else { name }),
-    )?;
-    let aws_region = app.ui.prompter.text(
-        &format!("hat.{n}.aws_region"),
-        &format!("[{name}] AWS region (blank for none)"),
-        Some("eu-west-2"),
-    )?;
     let kube_context = app.ui.prompter.text(
         &format!("hat.{n}.kube_context"),
         &format!("[{name}] kube context (blank for none)"),
@@ -276,13 +266,9 @@ fn ask_one_hat(
         description: None,
         colour: non_empty(colour),
         identity: (!is_empty_identity(&identity_spec)).then_some(identity_spec),
-        aws: some_if_any(
-            AwsSpec {
-                profile: non_empty(aws_profile),
-                region: non_empty(aws_region),
-            },
-            |a| a.profile.is_some() || a.region.is_some(),
-        ),
+        // AWS needs no answers: isolation is the default and the CLI writes
+        // its own config inside the hat.
+        aws: None,
         kube: some_if_any(
             KubeSpec {
                 context: non_empty(kube_context),
@@ -481,20 +467,18 @@ mod tests {
 
     #[test]
     fn some_if_any_drops_an_all_blank_block() {
-        let empty = AwsSpec::default();
+        let empty = KubeSpec::default();
         assert!(
-            some_if_any(empty, |a: &AwsSpec| a.profile.is_some()
-                || a.region.is_some())
-            .is_none()
+            some_if_any(empty, |k: &KubeSpec| k.context.is_some() || k.isolate.is_some())
+                .is_none()
         );
-        let filled = AwsSpec {
-            profile: Some("p".into()),
-            region: None,
+        let filled = KubeSpec {
+            context: Some("c".into()),
+            isolate: None,
         };
         assert!(
-            some_if_any(filled, |a: &AwsSpec| a.profile.is_some()
-                || a.region.is_some())
-            .is_some()
+            some_if_any(filled, |k: &KubeSpec| k.context.is_some() || k.isolate.is_some())
+                .is_some()
         );
     }
 

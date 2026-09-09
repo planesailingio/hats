@@ -51,9 +51,6 @@ fn list(app: &App, cfg: &Config, plain: bool) -> Result<()> {
                 if let Some(e) = &p.identity.email {
                     bits.push(e.clone());
                 }
-                if let Some(a) = &p.aws.profile {
-                    bits.push(format!("aws={a}"));
-                }
                 if let Some(k) = &p.kube.context {
                     bits.push(format!("kube={k}"));
                 }
@@ -97,12 +94,8 @@ fn show(app: &App, cfg: &Config, name: &str, json: bool) -> Result<()> {
     if p.identity.signing_key.is_some() {
         app.ui.say("signing   set (value withheld)");
     }
-    if let Some(a) = &p.aws.profile {
-        app.ui.say(format!("aws       {a}"));
-    }
-    if let Some(r) = &p.aws.region {
-        app.ui.say(format!("region    {r}"));
-    }
+    app.ui
+        .say(format!("aws       isolated: {}", p.aws_isolated()));
     app.ui.say(format!(
         "kube      {} (isolated: {})",
         p.kube.context.as_deref().unwrap_or("-"),
@@ -144,15 +137,13 @@ fn current(app: &App, cfg: &Config, summary: bool) -> Result<()> {
 
     // The one-line confirmation the shell function prints after a switch.
     let git = std::env::var("GIT_AUTHOR_EMAIL").unwrap_or_else(|_| "-".into());
-    let aws = std::env::var("AWS_PROFILE").unwrap_or_else(|_| "-".into());
     let kube = cfg
         .resolve_hat(&name)
         .ok()
         .and_then(|p| p.kube.context)
         .unwrap_or_else(|| "-".into());
-    app.ui.say(format!(
-        "⛭ hat: {name}  (git={git}  aws={aws}  kube={kube})"
-    ));
+    app.ui
+        .say(format!("⛭ hat: {name}  (git={git}  kube={kube})"));
     Ok(())
 }
 

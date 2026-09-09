@@ -10,6 +10,28 @@ and versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **AWS is isolated per hat instead of selected with `AWS_PROFILE`.** Each hat
+  gets its own `~/.aws/.hats/<hat>.config` and `~/.aws/.hats/<hat>.credentials`,
+  seeded once from the shared files and pointed at by `AWS_CONFIG_FILE` and
+  `AWS_SHARED_CREDENTIALS_FILE`. This is rule 2 applied to AWS, and it fixes
+  what `AWS_PROFILE` never could: `aws configure`, `aws configure set` and
+  `aws sso login` all write to the shared files, so re-authenticating in one
+  terminal rewrote state every other terminal was reading. Selecting a section
+  inside a file being rewritten underneath you is not isolation.
+- **Breaking: the `aws:` block is now isolation-only.** `profile:` and `region:`
+  are gone; the block holds `isolate: true|false`, defaulting to true, exactly
+  like `kube:`. Delete those two keys from every hat in `~/.hats/config.yaml`.
+  Region belongs in the hat's own AWS config file now, where the CLI writes it.
+- `hats env` gains `--no-aws`, matching `--no-kube`.
+- `AWS_PROFILE`, `AWS_REGION` and `AWS_DEFAULT_REGION` are cleared on every
+  switch even though hats no longer sets them: a hand-exported one would
+  otherwise select a section inside the next hat's isolated file.
+- The `hat` summary line drops `aws=`, and `hats hat show` reports
+  `aws  isolated: <bool>` in place of the profile and region.
+- The starship AWS module now reads whatever the hat's own config declares
+  rather than `$AWS_PROFILE`, so a hat with an empty config shows nothing until
+  you configure it inside that hat.
+
 - **`profile` is now `hat`, everywhere.** The shell function, the subcommand and
   the config all use one word for the thing you put on. `profile <name>` becomes
   `hat <name>`, `hats profile ...` becomes `hats hat ...`, and the wizard's

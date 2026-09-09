@@ -14,7 +14,7 @@ use minijinja::{Environment, context};
 use crate::app::App;
 use crate::cli::{EnvArgs, ShellInitArgs};
 use crate::hat::emit::{ShellEmitter, Zsh, sh_quote};
-use crate::hat::{EnvOptions, EnvPlan, kube};
+use crate::hat::{EnvOptions, EnvPlan, aws, kube};
 use crate::secrets::store::Secrets;
 
 /// The integration script, compiled into the binary so a mid-upgrade repo
@@ -44,6 +44,7 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
 
     let opts = EnvOptions {
         no_kube: args.no_kube,
+        no_aws: args.no_aws,
         no_colour: args.no_colour,
         reset_only: args.reset,
     };
@@ -58,6 +59,26 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
     // process, rather than emitting shell to do it. Both act on files, not on
     // the parent shell, so there is nothing to gain from deferring them, and
     // failures stay out of the evaluated script.
+    if plan.aws_config.is_some() {
+        match aws::isolate(&platform.home, &name) {
+            Ok((config, credentials)) => {
+                plan.set
+                    .insert("AWS_CONFIG_FILE".into(), config.to_string_lossy().into_owned());
+                plan.set.insert(
+                    "AWS_SHARED_CREDENTIALS_FILE".into(),
+                    credentials.to_string_lossy().into_owned(),
+                );
+            }
+            // Falling back to the shared files would silently reintroduce the
+            // leak, so drop the pointers instead and say so.
+            Err(e) => {
+                app.ui.detail(format!("aws isolation skipped: {e:#}"));
+                plan.set.shift_remove("AWS_CONFIG_FILE");
+                plan.set.shift_remove("AWS_SHARED_CREDENTIALS_FILE");
+            }
+        }
+    }
+
     if let Some(kc) = plan.kubeconfig.clone() {
         match kube::isolate(&platform.home, &name) {
             Ok(path) => {

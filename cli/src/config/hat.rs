@@ -18,7 +18,19 @@ use serde::{Deserialize, Serialize};
 use crate::error::ConfigError;
 
 /// Environment variables hats always owns, whichever hat is active.
-pub const ALWAYS_OWNED: &[&str] = &["HATS_HAT", "ENV_PROFILE", "KUBECONFIG"];
+pub const ALWAYS_OWNED: &[&str] = &[
+    "HATS_HAT",
+    "ENV_PROFILE",
+    "KUBECONFIG",
+    "AWS_CONFIG_FILE",
+    "AWS_SHARED_CREDENTIALS_FILE",
+    // hats no longer sets these, but a hand-exported one would select a
+    // section inside the next hat's isolated file, so clear them on every
+    // switch rather than letting them ride along.
+    "AWS_PROFILE",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+];
 
 /// A value in a hat's `env` map: either a literal or a reference to a
 /// secret resolved at emit time.
@@ -68,19 +80,17 @@ impl IdentitySpec {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AwsSpec {
+    /// Give this hat its own `~/.aws/config` and `~/.aws/credentials`.
+    /// Defaults to true: even the base hat isolates, so a plain terminal never
+    /// writes the shared files.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub profile: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub region: Option<String>,
+    pub isolate: Option<bool>,
 }
 
 impl AwsSpec {
     fn merge(&mut self, child: &AwsSpec) {
-        if child.profile.is_some() {
-            self.profile = child.profile.clone();
-        }
-        if child.region.is_some() {
-            self.region = child.region.clone();
+        if child.isolate.is_some() {
+            self.isolate = child.isolate;
         }
     }
 }
@@ -153,6 +163,13 @@ impl ResolvedHat {
         self.kube.isolate.unwrap_or(true)
     }
 
+    /// Whether this hat gets its own AWS config and credentials. Isolation is
+    /// the default for the same reason as kube: `aws sso login` rewrites the
+    /// shared files, and one terminal must not do that to another.
+    pub fn aws_isolated(&self) -> bool {
+        self.aws.isolate.unwrap_or(true)
+    }
+
     /// Every environment variable this hat sets, derived plus explicit.
     ///
     /// This is the function the reset list is built from, so anything that
@@ -174,13 +191,6 @@ impl ResolvedHat {
             keys.insert("GIT_CONFIG_COUNT".into());
             keys.insert("GIT_CONFIG_KEY_0".into());
             keys.insert("GIT_CONFIG_VALUE_0".into());
-        }
-        if self.aws.profile.is_some() {
-            keys.insert("AWS_PROFILE".into());
-        }
-        if self.aws.region.is_some() {
-            keys.insert("AWS_REGION".into());
-            keys.insert("AWS_DEFAULT_REGION".into());
         }
         keys.extend(self.env.keys().cloned());
         keys
@@ -331,7 +341,7 @@ mod tests {
 normal:
   colour: "#2a2040"
   identity: { name: Jane, email: jane@example.com, signing_key: { secret: git_signing_key } }
-  aws: { profile: default, region: eu-west-2 }
+  aws: { isolate: true }
   kube: { isolate: true }
   env: { EDITOR: "code --wait" }
   path: ["~/.tenv/bin"]
@@ -339,7 +349,7 @@ acme:
   inherits: normal
   colour: "#331420"
   identity: { name: Jane Doe, email: jane@acme.example }
-  aws: { profile: acme-aws }
+  aws: { isolate: false }
   kube: { context: acme }
   env:
     JIRA_API_TOKEN: { secret: jira_token }
@@ -353,9 +363,8 @@ acme:
     fn child_overrides_parent_and_inherits_the_rest() {
         let p = resolve("acme", &fixture(), None).unwrap();
         assert_eq!(p.identity.email.as_deref(), Some("jane@acme.example"));
-        // region and signing key come from normal
-        assert_eq!(p.aws.region.as_deref(), Some("eu-west-2"));
-        assert_eq!(p.aws.profile.as_deref(), Some("acme-aws"));
+        // the child turns AWS isolation off; the signing key comes from normal
+        assert!(!p.aws_isolated());
         assert_eq!(
             p.identity.signing_key,
             Some(EnvValue::Secret {
@@ -370,7 +379,7 @@ acme:
 
     #[test]
     fn base_identity_fills_gaps_in_the_root_profile() {
-        let hats = spec("normal:\n  aws: { profile: default }\n");
+        let hats = spec("normal:\n  aws: { isolate: true }\n");
         let base = IdentitySpec {
             name: Some("Jane".into()),
             email: Some("jane@example.com".into()),
@@ -416,8 +425,8 @@ acme:
             "GIT_AUTHOR_NAME",
             "GIT_COMMITTER_EMAIL",
             "GIT_CONFIG_VALUE_0",
-            "AWS_PROFILE",
-            "AWS_DEFAULT_REGION",
+            "AWS_CONFIG_FILE",
+            "AWS_SHARED_CREDENTIALS_FILE",
             "JIRA_API_TOKEN",
             "HATS_HAT",
             "KUBECONFIG",

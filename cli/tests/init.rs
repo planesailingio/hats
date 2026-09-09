@@ -69,8 +69,6 @@ answers:
   groups.extras: false
 
   hat.1.name: normal
-  hat.1.aws_profile: default
-  hat.1.aws_region: eu-west-2
   hat.1.kube_context: ""
   hat.1.colour: "#2a2040"
 
@@ -79,8 +77,6 @@ answers:
   hat.2.inherits: true
   hat.2.git_name: Jane Doe
   hat.2.git_email: jane.doe@acme.example
-  hat.2.aws_profile: acme-aws
-  hat.2.aws_region: eu-west-2
   hat.2.kube_context: acme
   hat.2.colour: "#331420"
 
@@ -182,7 +178,6 @@ fn the_wizard_records_every_answer_it_was_given() {
     assert!(cfg.contains("normal:"));
     assert!(cfg.contains("acme:"));
     assert!(cfg.contains("inherits: normal"));
-    assert!(cfg.contains("acme-aws"));
     assert!(cfg.contains("context: acme"));
     assert!(cfg.contains("jane.doe@acme.example"));
 
@@ -249,9 +244,10 @@ fn hat_show_folds_the_inheritance_chain() {
         .success()
         // Overridden on the child.
         .stdout(predicate::str::contains("jane.doe@acme.example"))
-        .stdout(predicate::str::contains("acme-aws"))
-        // Inherited from normal.
-        .stdout(predicate::str::contains("eu-west-2"));
+        .stdout(predicate::str::contains("kube      acme"))
+        // Folded in from the parent rather than restated on the child.
+        .stdout(predicate::str::contains("inherits  normal"))
+        .stdout(predicate::str::contains("aws       isolated: true"));
 }
 
 #[test]

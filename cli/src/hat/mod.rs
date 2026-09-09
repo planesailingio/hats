@@ -8,6 +8,7 @@
 //! Rule 3 of the design ("unset before you set") is enforced structurally: the
 //! unset list is the union of every hat's keys, not a list anyone maintains.
 
+pub mod aws;
 pub mod emit;
 pub mod kube;
 
@@ -33,6 +34,9 @@ pub struct EnvPlan {
     pub path_prepend: Vec<String>,
     pub kubeconfig: Option<PathBuf>,
     pub kube_context: Option<String>,
+    /// This hat's own AWS files, or None when isolation is off.
+    pub aws_config: Option<PathBuf>,
+    pub aws_credentials: Option<PathBuf>,
     /// Terminal tint, or None to leave the background alone.
     pub colour: Option<String>,
     /// Secrets the hat refers to that have no value. Reported to stderr so
@@ -45,6 +49,8 @@ pub struct EnvPlan {
 pub struct EnvOptions {
     /// Skip the kubeconfig isolation and context selection.
     pub no_kube: bool,
+    /// Skip the AWS config and credentials isolation.
+    pub no_aws: bool,
     /// Skip the terminal background escape.
     pub no_colour: bool,
     /// Emit only the unset block.
@@ -73,6 +79,8 @@ impl EnvPlan {
             path_prepend: Vec::new(),
             kubeconfig: None,
             kube_context: None,
+            aws_config: None,
+            aws_credentials: None,
             colour: None,
             missing_secrets: Vec::new(),
         };
@@ -82,9 +90,23 @@ impl EnvPlan {
         }
 
         plan.add_identity(&p, secrets);
-        plan.add_aws(&p);
         plan.add_env(&p, secrets);
         plan.path_prepend = p.path.iter().map(|s| expand_home(s, home)).collect();
+
+        if !opts.no_aws && p.aws_isolated() {
+            plan.aws_config = Some(aws::config_path(home, name));
+            plan.aws_credentials = Some(aws::credentials_path(home, name));
+        }
+        if let Some(f) = &plan.aws_config {
+            plan.set
+                .insert("AWS_CONFIG_FILE".into(), f.to_string_lossy().into_owned());
+        }
+        if let Some(f) = &plan.aws_credentials {
+            plan.set.insert(
+                "AWS_SHARED_CREDENTIALS_FILE".into(),
+                f.to_string_lossy().into_owned(),
+            );
+        }
 
         if !opts.no_kube && p.kube_isolated() {
             plan.kubeconfig = Some(kube::config_path(home, name));
@@ -125,16 +147,6 @@ impl EnvPlan {
                     .insert("GIT_CONFIG_KEY_0".into(), "user.signingkey".into());
                 self.set.insert("GIT_CONFIG_VALUE_0".into(), value);
             }
-        }
-    }
-
-    fn add_aws(&mut self, p: &ResolvedHat) {
-        if let Some(profile) = &p.aws.profile {
-            self.set.insert("AWS_PROFILE".into(), profile.clone());
-        }
-        if let Some(region) = &p.aws.region {
-            self.set.insert("AWS_REGION".into(), region.clone());
-            self.set.insert("AWS_DEFAULT_REGION".into(), region.clone());
         }
     }
 
@@ -194,14 +206,12 @@ hats:
   normal:
     colour: "#2a2040"
     identity: { signing_key: { secret: git_signing_key } }
-    aws: { profile: default, region: eu-west-2 }
     env: { EDITOR: "code --wait" }
     path: ["~/.tenv/bin"]
   acme:
     inherits: normal
     colour: "#331420"
     identity: { name: Jane Doe, email: jane@acme.example }
-    aws: { profile: acme-aws }
     kube: { context: acme }
     env:
       JIRA_API_TOKEN: { secret: jira_token }
@@ -255,11 +265,39 @@ mod tests {
     }
 
     #[test]
-    fn aws_region_sets_both_variables_tools_look_at() {
+    fn aws_points_at_this_hats_own_config_and_credentials() {
         let p = plan("acme", EnvOptions::default());
-        assert_eq!(p.set["AWS_PROFILE"], "acme-aws");
-        assert_eq!(p.set["AWS_REGION"], "eu-west-2");
-        assert_eq!(p.set["AWS_DEFAULT_REGION"], "eu-west-2");
+        assert_eq!(
+            p.set["AWS_CONFIG_FILE"],
+            "/home/t/.aws/.hats/acme.config"
+        );
+        assert_eq!(
+            p.set["AWS_SHARED_CREDENTIALS_FILE"],
+            "/home/t/.aws/.hats/acme.credentials"
+        );
+    }
+
+    /// A hand-exported AWS_PROFILE would select a section inside the next
+    /// hat's isolated file, so a switch must clear it even though hats never
+    /// sets it.
+    #[test]
+    fn a_stray_aws_profile_is_cleared_even_though_hats_never_sets_it() {
+        let p = plan("acme", EnvOptions::default());
+        assert!(!p.set.contains_key("AWS_PROFILE"));
+        assert!(p.unset.contains(&"AWS_PROFILE".to_string()));
+    }
+
+    #[test]
+    fn no_aws_leaves_the_shared_files_alone() {
+        let p = plan(
+            "acme",
+            EnvOptions {
+                no_aws: true,
+                ..Default::default()
+            },
+        );
+        assert!(!p.set.contains_key("AWS_CONFIG_FILE"));
+        assert!(!p.set.contains_key("AWS_SHARED_CREDENTIALS_FILE"));
     }
 
     #[test]

@@ -375,6 +375,10 @@ pub struct EnvArgs {
     #[arg(long)]
     pub no_kube: bool,
 
+    /// Do not touch the AWS config or credentials
+    #[arg(long)]
+    pub no_aws: bool,
+
     /// Do not emit the terminal tint
     #[arg(long)]
     pub no_colour: bool,

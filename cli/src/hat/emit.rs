@@ -220,7 +220,7 @@ mod tests {
         let script = emit("acme");
         let probe = format!(
             "{script}\nprintf '%s|%s|%s|%s\\n' \
-             \"$HATS_HAT\" \"$GIT_AUTHOR_EMAIL\" \"$AWS_PROFILE\" \"$JIRA_API_TOKEN\""
+             \"$HATS_HAT\" \"$GIT_AUTHOR_EMAIL\" \"$AWS_CONFIG_FILE\" \"$JIRA_API_TOKEN\""
         );
         let out = std::process::Command::new("sh")
             .arg("-c")
@@ -229,7 +229,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             String::from_utf8_lossy(&out.stdout).trim(),
-            "acme|jane@acme.example|acme-aws|tok-123"
+            "acme|jane@acme.example|/home/t/.aws/.hats/acme.config|tok-123"
         );
     }
 
@@ -249,7 +249,9 @@ mod tests {
             .arg(&probe)
             .output()
             .unwrap();
-        // AWS_PROFILE is set by `normal`; the acme-only variables are not.
-        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[][][default]");
+        // All three are gone: the acme-only variables because no hat sets
+        // them, and AWS_PROFILE because hats clears it on every switch now
+        // that per-hat AWS files have replaced it.
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[][][]");
     }
 }
