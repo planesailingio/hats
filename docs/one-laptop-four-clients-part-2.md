@@ -18,9 +18,9 @@ The whole thing lives in `~/.profiles.d/`, one file per context:
 
 ```
 ~/.profiles.d/
-  normal.zsh        # personal — the base everything else builds on
-  globex.zsh   # client
-  acme.zsh     # client
+  normal.zsh    # personal — the base everything else builds on
+  globex.zsh    # client
+  acme.zsh      # client
 ```
 
 A profile is a plain shell script. There's no framework, no DSL, no plugin. You `source` it and it exports things. If you can read `export FOO=bar` you can read all of this, and more importantly you can debug it at 4pm with `echo $AWS_PROFILE`.

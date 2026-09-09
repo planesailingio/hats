@@ -10,7 +10,6 @@
 # NOTE: verified 2026-09-09 — every formula in these bundles resolves from
 # homebrew/core; none of these taps is required. Deletion candidates.
 tap "mike-engel/jwt-cli"            # jwt-cli
-tap "acmeco/tap"               # personal formulae
 
 # ── Shell, prompt & modern CLI core ───────────────────────────────────────────
 brew "zsh"                          # brew zsh, newer than system

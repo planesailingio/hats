@@ -18,7 +18,6 @@ tap "cloudflare/cloudflare"
 tap "siderolabs/tap"
 tap "turbot/tap"
 tap "netbirdio/tap"
-tap "globex/tap"
 
 # ── IaC / Terraform-OpenTofu ──────────────────────────────────────────────────
 brew "tenv"                         # tofu/terraform/terragrunt version manager (replaces tfenv+tofuenv)

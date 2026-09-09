@@ -144,10 +144,7 @@ mod tests {
 
     #[test]
     fn slugify_matches_the_key_names_the_old_fetch_script_used() {
-        assert_eq!(
-            slugify("Jira Acme API Token"),
-            "jira_acme_api_token"
-        );
+        assert_eq!(slugify("Jira Acme API Token"), "jira_acme_api_token");
         assert_eq!(
             slugify("Chocolatey API Key"),
             "choco_api_key".replace("choco", "chocolatey")

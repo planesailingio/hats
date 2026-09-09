@@ -267,10 +267,7 @@ mod tests {
     #[test]
     fn aws_points_at_this_hats_own_config_and_credentials() {
         let p = plan("acme", EnvOptions::default());
-        assert_eq!(
-            p.set["AWS_CONFIG_FILE"],
-            "/home/t/.aws/.hats/acme.config"
-        );
+        assert_eq!(p.set["AWS_CONFIG_FILE"], "/home/t/.aws/.hats/acme.config");
         assert_eq!(
             p.set["AWS_SHARED_CREDENTIALS_FILE"],
             "/home/t/.aws/.hats/acme.credentials"
