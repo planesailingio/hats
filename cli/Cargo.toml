@@ -1,6 +1,6 @@
 [package]
 name = "hats"
-version = "0.5.2"
+version = "0.6.0"
 description = "One laptop, many hats: dotfiles and per-shell client contexts."
 readme = "../README.md"
 keywords = ["dotfiles", "profiles", "cli", "chezmoi", "shell"]
