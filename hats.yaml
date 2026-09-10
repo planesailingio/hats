@@ -20,7 +20,7 @@ groups:
     description: "~/.gitconfig with delta, aliases and LFS"
     default: true
   ssh:
-    description: "~/.ssh/config skeleton that includes your machine-local config.d/*.conf"
+    description: "~/.ssh/config: the active hat's config.d/<hat>.conf, then config.d/common.conf, then shared defaults"
     default: true
   theme:
     description: "Catppuccin Mocha for starship, bat, btop, k9s and lazygit"
@@ -86,11 +86,12 @@ hooks:
     os: [darwin]
     script: hooks/dock.sh
 
-  # Creates ~/.ssh/config.d and ~/.ssh/known_hosts.d and seeds the README that
-  # explains the per-client recipe. Never overwrites anything.
+  # Creates ~/.ssh/config.d and ~/.ssh/known_hosts.d and writes the README that
+  # explains the per-hat layout. Re-runs when the script changes so the README
+  # stays current; it never touches anything else in those directories.
   - name: ssh-local
     phase: after
-    trigger: once
+    trigger: { onchange: [hooks/ssh-local.sh] }
     script: hooks/ssh-local.sh
 
   # Only meaningful once the editor group is enabled; the hook exits cleanly

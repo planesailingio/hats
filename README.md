@@ -20,8 +20,7 @@ edits a file that every terminal on the machine shares. So does
 `git config --global`. Switch client and you're updating four different
 mechanisms by hand, then checking all four before you type anything dangerous.
 
-**What hats does.** `hat acme` sets git identity, signing keys, AWS
-credentials, kube configs, tokens, env vars, toolchain versions and the terminal's
+**What hats does.** `hat acme` sets git identity, signing keys, SSH config, AWS credentials, kube configs, tokens, env vars, toolchain versions and the terminal's
 background tint — in *that shell only*.
 
 **The other half.** The dotfiles behind it are managed like infrastructure:
@@ -265,6 +264,14 @@ so a stray `use-context`, or an `aws sso login`, can only ever affect the shell
 that ran it. Turn either off per hat with `aws: { isolate: false }` or
 `kube: { isolate: false }`.
 
+SSH needs no copy. `~/.ssh/config` includes `~/.ssh/config.d/${HATS_HAT}.conf`,
+then `~/.ssh/config.d/common.conf` for hosts every hat shares, then hats' own
+`Host *` defaults. ssh expands the variable per process, so each shell reads only
+the hosts and keys of the hat it's wearing — `github.com` can use a different
+key in every terminal, with no wrappers. Those files are machine-local like the
+hats themselves; `~/.ssh/config.d/README` has the recipe. It needs OpenSSH 9.9
+or later, which `hats doctor` checks.
+
 ## The four rules it's built on
 
 1. Per-context state lives in **environment variables**, never in shared files.
@@ -413,6 +420,7 @@ tell you.
 | `cli/`                 | The `hats` source, in Rust.                                                                   |
 | `~/.hats/config.yaml`  | **Your** hats, identities and endpoints. Machine-local, never in git.                         |
 | `~/.hats/secrets.yaml` | Fetched tokens, mode 0600.                                                                    |
+| `~/.ssh/config.d/`     | SSH hosts and keys: `<hat>.conf` for the active hat, `common.conf` for all. Never in git.     |
 
 Hats are deliberately not in this repo. It ships defaults anyone can use;
 who you work for stays on your laptop.

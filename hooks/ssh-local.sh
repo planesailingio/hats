@@ -1,7 +1,8 @@
 #!/bin/sh
-# Runs ONCE after first apply. Creates the machine-local SSH layout that ~/.ssh/config
-# includes. Nothing here is tracked in the repo: client hosts, keys and known_hosts stay
-# on this machine only. Idempotent — never overwrites an existing file.
+# Creates the machine-local SSH layout that ~/.ssh/config includes, and writes the
+# README that explains it. Nothing here is tracked in the repo: client hosts, keys and
+# known_hosts stay on this machine only. Re-runs when this script changes so the README
+# stays current; the README is hats' own text, and nothing else here is ever touched.
 set -eu
 
 ssh_dir="$HOME/.ssh"
@@ -12,30 +13,36 @@ mkdir -p "$conf_d" "$kh_d"
 chmod 700 "$ssh_dir" "$conf_d" "$kh_d"
 
 readme="$conf_d/README"
-if [ ! -f "$readme" ]; then
-  cat > "$readme" <<'README'
+cat > "$readme" <<'README'
 ~/.ssh/config.d — machine-local SSH config (not in the dotfiles repo)
 
-~/.ssh/config does `Include ~/.ssh/config.d/*.conf`, so drop one file per client here:
+~/.ssh/config reads three layers, in this order:
 
-    ~/.ssh/config.d/acme.conf
-    ~/.ssh/config.d/globex.conf
-    ~/.ssh/config.d/normal.conf
+    ~/.ssh/config.d/${HATS_HAT}.conf    the active hat's hosts and keys
+    ~/.ssh/config.d/common.conf         hosts every hat shares
+    Host * defaults                     managed by hats, in ~/.ssh/config
 
-Only *.conf files are included; this README and anything else are ignored.
+ssh takes the FIRST value it finds for each option, so a hat's file overrides
+common.conf, and both override the defaults. Name a file after each hat that needs one:
 
-Recipe for a client file — hosts unique to the client are plain Host blocks:
+    ~/.ssh/config.d/acme.conf       read under `hat acme`
+    ~/.ssh/config.d/globex.conf     read under `hat globex`
+    ~/.ssh/config.d/normal.conf     read under `hat normal`
 
-    Host bastion.acme.example
-      User jane
+A hat with no file just gets common.conf and the defaults. Nothing else here is read,
+and hat inheritance does not reach ssh: a hat that `inherits: normal` does not read
+normal.conf.
+
+Each file is ordinary ssh config. Hostnames shared across clients (github.com is the
+usual one) need nothing special: each hat's file has its own block, and only one of
+them is read.
+
+    Host github.com
       IdentityFile ~/.ssh/id_ed25519_acme
       UserKnownHostsFile ~/.ssh/known_hosts.d/acme
 
-Hostnames shared across clients (github.com is the usual one) are selected by the
-active hat. `hat <name>` exports HATS_HAT, and ssh's `Match exec`
-inherits that environment, so each terminal picks its own key with no wrappers:
-
-    Match host github.com exec "test \"$HATS_HAT\" = acme"
+    Host bastion.acme.example
+      User jane
       IdentityFile ~/.ssh/id_ed25519_acme
       UserKnownHostsFile ~/.ssh/known_hosts.d/acme
 
@@ -47,15 +54,17 @@ Check which key a host will use under a given hat:
 
     hat acme && ssh -G github.com | grep -i identityfile
 
-Files must be 0600 (`chmod 600 ~/.ssh/config.d/*.conf`) or ssh refuses to read them.
+Files must be 0600 (`chmod 600 ~/.ssh/config.d/*`) or ssh refuses to read them.
 
-Don't add a catch-all `IdentityFile` under `Host *`: ssh APPENDS IdentityFile entries, so a
-default key would be offered as a fallback after the client key and github.com could quietly
-log you in as the wrong account. Leave it unset and ssh uses ~/.ssh/id_ed25519 only for
-hosts nothing else matched.
+Keep IdentityFile out of common.conf for any host a hat's file also covers, and never
+put one under `Host *`: ssh APPENDS IdentityFile entries rather than taking the first,
+so the extra key is offered as a fallback and github.com could quietly log you in as
+the wrong account. Leave it unset and ssh uses ~/.ssh/id_ed25519 only for hosts
+nothing else matched.
+
+Variables in Include need OpenSSH 9.9 or later; `hats doctor` checks. A process with
+no hat at all (a GUI app, launchd) makes ssh warn that HATS_HAT has no value, then
+carry on with common.conf and the defaults.
 README
-  chmod 600 "$readme"
-  echo "==> seeded $readme"
-else
-  echo "==> $readme exists; leaving it alone"
-fi
+chmod 600 "$readme"
+echo "==> wrote $readme"

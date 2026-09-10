@@ -9,6 +9,7 @@ use anyhow::Result;
 use crate::app::App;
 use crate::cli::DoctorArgs;
 use crate::config::Config;
+use crate::platform::Os;
 use crate::repo::{BINARY_VERSION, VersionStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -227,6 +228,10 @@ pub fn collect(app: &App) -> Vec<Check> {
                 }
             }
 
+            if cfg.group_enabled("ssh") {
+                checks.push(ssh_check(app));
+            }
+
             // Secrets file, if a provider is configured.
             if cfg.local.secrets.provider != crate::config::local::ProviderKind::None {
                 if app.paths.secrets.is_file() {
@@ -247,6 +252,44 @@ pub fn collect(app: &App) -> Vec<Check> {
     }
 
     checks
+}
+
+/// OpenSSH expands environment variables in `Include` from 9.9 on.
+const SSH_INCLUDE_ENV: (u32, u32) = (9, 9);
+
+/// The ssh skeleton includes `~/.ssh/config.d/${HATS_HAT}.conf`. An older ssh
+/// reads that path literally, matches nothing and never says so, so a hat's
+/// hosts and keys would silently not apply.
+fn ssh_check(app: &App) -> Check {
+    let Ok(out) = std::process::Command::new("ssh").arg("-V").output() else {
+        return Check::warn("ssh", "not found; per-hat ssh config will not work", None);
+    };
+    // `ssh -V` prints its banner to stderr.
+    let banner = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    match openssh_version(&banner) {
+        Some(v) if v >= SSH_INCLUDE_ENV => Check::ok("ssh", banner),
+        Some((major, minor)) => {
+            // Homebrew's openssh lacks Apple's UseKeychain, which the skeleton
+            // sets on macOS, so only suggest it on Linux.
+            let linux = app.platform().is_ok_and(|p| matches!(p.os, Os::Linux));
+            Check::warn(
+                "ssh",
+                format!(
+                    "OpenSSH {major}.{minor} cannot expand ${{HATS_HAT}} in Include; \
+                     ~/.ssh/config.d/<hat>.conf needs 9.9+"
+                ),
+                linux.then_some("brew install openssh"),
+            )
+        }
+        None => Check::warn("ssh", format!("unrecognised version `{banner}`"), None),
+    }
+}
+
+/// `OpenSSH_10.2p1, LibreSSL 3.3.6` → `(10, 2)`.
+fn openssh_version(banner: &str) -> Option<(u32, u32)> {
+    let rest = banner.strip_prefix("OpenSSH_")?;
+    let mut parts = rest.split(|c: char| !c.is_ascii_digit());
+    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
 }
 
 #[cfg(test)]
@@ -297,6 +340,28 @@ mod tests {
             let c = checks.iter().find(|c| c.name == name).unwrap();
             assert_ne!(c.level, Level::Fail, "{name} must not be a hard failure");
         }
+    }
+
+    #[test]
+    fn openssh_versions_parse_from_real_banners() {
+        assert_eq!(
+            openssh_version("OpenSSH_10.2p1, LibreSSL 3.3.6"),
+            Some((10, 2))
+        );
+        assert_eq!(
+            openssh_version("OpenSSH_9.6p1 Ubuntu-3ubuntu13.5, OpenSSL 3.0.13 30 Jan 2024"),
+            Some((9, 6))
+        );
+        assert_eq!(openssh_version("OpenSSH_for_Windows_9.5p1"), None);
+        assert_eq!(openssh_version(""), None);
+    }
+
+    /// Compared as numbers, not strings: 10.0 is new enough, 9.6 is not.
+    #[test]
+    fn include_expansion_needs_9_9_or_later() {
+        assert!((9, 6) < SSH_INCLUDE_ENV);
+        assert!((9, 9) >= SSH_INCLUDE_ENV);
+        assert!((10, 0) >= SSH_INCLUDE_ENV);
     }
 
     #[test]
