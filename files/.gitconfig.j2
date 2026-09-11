@@ -1,5 +1,8 @@
 # Identity here is only the fallback for tools that ignore the environment.
 # The active profile sets GIT_AUTHOR_*/GIT_COMMITTER_* per shell, and those win.
+#
+# Each hat's shell also includes ~/.gitconfig.d/<hat> (machine-local, created
+# once by `hats apply`), so per-client settings go there rather than here.
 [user]
 	email = {{ identity.email }}
 	name = {{ identity.name }}

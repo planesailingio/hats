@@ -14,7 +14,7 @@ use minijinja::{Environment, context};
 use crate::app::App;
 use crate::cli::{EnvArgs, ShellInitArgs};
 use crate::hat::emit::{ShellEmitter, Zsh, sh_quote};
-use crate::hat::{EnvOptions, EnvPlan, aws, kube};
+use crate::hat::{EnvOptions, EnvPlan, aws, k9s, kube};
 use crate::secrets::store::Secrets;
 
 /// The integration script, compiled into the binary so a mid-upgrade repo
@@ -96,6 +96,21 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
             Err(e) => app.ui.detail(format!("kube isolation skipped: {e:#}")),
         }
         let _ = kc;
+    }
+
+    // The theme links must be in a hat's k9s directory before k9s first runs
+    // there, or k9s writes a default config.yaml and the hat loses the theme.
+    if plan.k9s_config_dir.is_some() {
+        match k9s::isolate(&platform.home, &name) {
+            Ok(dir) => {
+                plan.set
+                    .insert("K9S_CONFIG_DIR".into(), dir.to_string_lossy().into_owned());
+            }
+            Err(e) => {
+                app.ui.detail(format!("k9s isolation skipped: {e:#}"));
+                plan.set.shift_remove("K9S_CONFIG_DIR");
+            }
+        }
     }
 
     if !plan.missing_secrets.is_empty() && !args.quiet {

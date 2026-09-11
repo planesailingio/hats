@@ -22,8 +22,13 @@ pub const ALWAYS_OWNED: &[&str] = &[
     "HATS_HAT",
     "ENV_PROFILE",
     "KUBECONFIG",
+    "K9S_CONFIG_DIR",
     "AWS_CONFIG_FILE",
     "AWS_SHARED_CREDENTIALS_FILE",
+    // Every hat includes its own ~/.gitconfig.d/<hat> through slot 0.
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_0",
+    "GIT_CONFIG_VALUE_0",
     // hats no longer sets these, but a hand-exported one would select a
     // section inside the next hat's isolated file, so clear them on every
     // switch rather than letting them ride along.
@@ -119,6 +124,23 @@ impl KubeSpec {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct K9sSpec {
+    /// Give this hat its own k9s config directory, so aliases, plugins,
+    /// hotkeys and views can differ per client. Defaults to true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isolate: Option<bool>,
+}
+
+impl K9sSpec {
+    fn merge(&mut self, child: &K9sSpec) {
+        if child.isolate.is_some() {
+            self.isolate = child.isolate;
+        }
+    }
+}
+
 /// A hat exactly as written in `~/.hats/config.yaml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -136,6 +158,8 @@ pub struct HatSpec {
     pub aws: Option<AwsSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kube: Option<KubeSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub k9s: Option<K9sSpec>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub env: IndexMap<String, EnvValue>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -151,6 +175,7 @@ pub struct ResolvedHat {
     pub identity: IdentitySpec,
     pub aws: AwsSpec,
     pub kube: KubeSpec,
+    pub k9s: K9sSpec,
     pub env: IndexMap<String, EnvValue>,
     pub path: Vec<String>,
 }
@@ -170,6 +195,11 @@ impl ResolvedHat {
         self.aws.isolate.unwrap_or(true)
     }
 
+    /// Whether this hat gets its own k9s config directory.
+    pub fn k9s_isolated(&self) -> bool {
+        self.k9s.isolate.unwrap_or(true)
+    }
+
     /// Every environment variable this hat sets, derived plus explicit.
     ///
     /// This is the function the reset list is built from, so anything that
@@ -187,10 +217,10 @@ impl ResolvedHat {
             keys.insert("GIT_AUTHOR_EMAIL".into());
             keys.insert("GIT_COMMITTER_EMAIL".into());
         }
+        // Slot 0 is the per-hat include, always owned; the signing key is 1.
         if self.identity.signing_key.is_some() {
-            keys.insert("GIT_CONFIG_COUNT".into());
-            keys.insert("GIT_CONFIG_KEY_0".into());
-            keys.insert("GIT_CONFIG_VALUE_0".into());
+            keys.insert("GIT_CONFIG_KEY_1".into());
+            keys.insert("GIT_CONFIG_VALUE_1".into());
         }
         keys.extend(self.env.keys().cloned());
         keys
@@ -267,6 +297,7 @@ pub fn resolve(
         identity: base_identity.cloned().unwrap_or_default(),
         aws: AwsSpec::default(),
         kube: KubeSpec::default(),
+        k9s: K9sSpec::default(),
         env: IndexMap::new(),
         path: Vec::new(),
     };
@@ -288,6 +319,9 @@ pub fn resolve(
         }
         if let Some(kube) = &spec.kube {
             out.kube.merge(kube);
+        }
+        if let Some(k9s) = &spec.k9s {
+            out.k9s.merge(k9s);
         }
         for (k, v) in &spec.env {
             out.env.insert(k.clone(), v.clone());
@@ -427,12 +461,21 @@ acme:
             "GIT_CONFIG_VALUE_0",
             "AWS_CONFIG_FILE",
             "AWS_SHARED_CREDENTIALS_FILE",
+            "GIT_CONFIG_VALUE_1",
             "JIRA_API_TOKEN",
             "HATS_HAT",
             "KUBECONFIG",
+            "K9S_CONFIG_DIR",
         ] {
             assert!(keys.contains(expected), "missing {expected}");
         }
+    }
+
+    #[test]
+    fn k9s_isolation_defaults_to_on_and_a_child_can_turn_it_off() {
+        let hats = spec("base: {}\nchild:\n  inherits: base\n  k9s: { isolate: false }\n");
+        assert!(resolve("base", &hats, None).unwrap().k9s_isolated());
+        assert!(!resolve("child", &hats, None).unwrap().k9s_isolated());
     }
 
     /// The regression test for the original bug: switching to a hat that

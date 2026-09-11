@@ -17,6 +17,7 @@ use anyhow::{Context, Result};
 use crate::config::repo::Phase;
 use crate::engine::plan::{Action, Entry, Plan};
 use crate::engine::state::State;
+use crate::hat::scaffold;
 use crate::hooks;
 use crate::platform::Platform;
 
@@ -38,6 +39,7 @@ pub struct Outcome {
     pub updated: usize,
     pub mode_changed: usize,
     pub destroyed: usize,
+    pub scaffolded: usize,
     pub skipped: Vec<String>,
     pub hooks_run: Vec<String>,
     pub backup_dir: Option<PathBuf>,
@@ -46,12 +48,13 @@ pub struct Outcome {
 impl Outcome {
     pub fn line(&self) -> String {
         format!(
-            "Apply complete: {} added, {} changed, {} destroyed, {} permission change{}; {} hook{} run.",
+            "Apply complete: {} added, {} changed, {} destroyed, {} permission change{}, {} scaffolded; {} hook{} run.",
             self.created,
             self.updated,
             self.destroyed,
             self.mode_changed,
             if self.mode_changed == 1 { "" } else { "s" },
+            self.scaffolded,
             self.hooks_run.len(),
             if self.hooks_run.len() == 1 { "" } else { "s" },
         )
@@ -154,6 +157,17 @@ pub fn apply(
         }
         state.touch();
         state.save(&ctx.state_path)?;
+
+        // After the managed files, so the k9s links have something to point
+        // at, and after the state save, so a failure here cannot lose the
+        // record of what was written. Scaffolds are never recorded: hats does
+        // not own them.
+        for s in &plan.scaffolds {
+            if scaffold::create(s, &ctx.platform.home)? {
+                outcome.scaffolded += 1;
+                report(&format!("scaffolded {}", s.display));
+            }
+        }
     }
 
     if !opts.only_files {
@@ -372,6 +386,7 @@ mod tests {
         });
         assert!(files.hooks_run.is_empty());
         assert_eq!(files.created, 2);
+        assert_eq!(files.scaffolded, 6);
 
         let t2 = Harness::new();
         let hooks = t2.apply_with(ApplyOptions {
@@ -379,6 +394,7 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(hooks.created, 0);
+        assert_eq!(hooks.scaffolded, 0);
         assert_eq!(hooks.hooks_run, vec!["probe"]);
         assert!(!t2.home.path().join(".zshrc").exists());
     }
@@ -401,6 +417,66 @@ mod tests {
         let p = t.plan();
         assert_eq!(p.summary.add, 0);
         assert_eq!(p.summary.hooks, 1);
+    }
+
+    #[test]
+    fn scaffolds_are_created_once_and_never_recorded() {
+        let t = Harness::new();
+        let first = t.apply();
+        assert_eq!(first.scaffolded, 6);
+        assert!(first.line().contains("6 scaffolded"));
+
+        let conf = t.home.path().join(".ssh/config.d/normal.conf");
+        let text = std::fs::read_to_string(&conf).unwrap();
+        assert!(
+            text.starts_with("# ssh hosts and keys for hat normal"),
+            "{text}"
+        );
+        assert!(
+            t.state().file(&conf).is_none(),
+            "hats does not own a scaffold"
+        );
+
+        std::fs::write(&conf, "Host mine\n").unwrap();
+        let second = t.apply();
+        assert_eq!(second.scaffolded, 0);
+        assert_eq!(std::fs::read_to_string(&conf).unwrap(), "Host mine\n");
+        assert_eq!(t.plan().summary.scaffold, 0);
+    }
+
+    #[test]
+    fn a_removed_hat_keeps_its_files() {
+        let t = Harness::new();
+        t.apply();
+        t.local.borrow_mut().hats.shift_remove("normal");
+
+        let p = t.plan();
+        assert_eq!(p.summary.destroy, 0);
+        assert!(p.scaffolds.is_empty());
+        t.apply();
+        assert!(t.home.path().join(".gitconfig.d/normal").is_file());
+        assert!(t.home.path().join(".ssh/config.d/normal.conf").is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hats_k9s_directory_links_to_the_theme() {
+        let t = Harness::new();
+        let k9s = t.home.path().join(".config/k9s");
+        std::fs::create_dir_all(&k9s).unwrap();
+        std::fs::write(k9s.join("config.yaml"), "k9s: {}\n").unwrap();
+
+        t.apply();
+        let link = k9s.join("hats/normal/config.yaml");
+        assert_eq!(
+            std::fs::read_link(&link).unwrap(),
+            PathBuf::from("../../config.yaml")
+        );
+        assert_eq!(std::fs::read_to_string(&link).unwrap(), "k9s: {}\n");
+        assert!(
+            k9s.join("hats/normal/skins").symlink_metadata().is_err(),
+            "no link to a theme that is not there"
+        );
     }
 
     #[test]

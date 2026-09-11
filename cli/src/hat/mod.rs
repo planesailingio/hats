@@ -10,7 +10,11 @@
 
 pub mod aws;
 pub mod emit;
+pub mod git;
+pub mod k9s;
 pub mod kube;
+pub mod scaffold;
+pub mod ssh;
 
 use std::path::PathBuf;
 
@@ -34,6 +38,8 @@ pub struct EnvPlan {
     pub path_prepend: Vec<String>,
     pub kubeconfig: Option<PathBuf>,
     pub kube_context: Option<String>,
+    /// This hat's own k9s directory, or None when isolation is off.
+    pub k9s_config_dir: Option<PathBuf>,
     /// This hat's own AWS files, or None when isolation is off.
     pub aws_config: Option<PathBuf>,
     pub aws_credentials: Option<PathBuf>,
@@ -79,6 +85,7 @@ impl EnvPlan {
             path_prepend: Vec::new(),
             kubeconfig: None,
             kube_context: None,
+            k9s_config_dir: None,
             aws_config: None,
             aws_credentials: None,
             colour: None,
@@ -89,7 +96,7 @@ impl EnvPlan {
             return Ok(plan);
         }
 
-        plan.add_identity(&p, secrets);
+        plan.add_identity(&p, secrets, home);
         plan.add_env(&p, secrets);
         plan.path_prepend = p.path.iter().map(|s| expand_home(s, home)).collect();
 
@@ -117,6 +124,14 @@ impl EnvPlan {
                 .insert("KUBECONFIG".into(), kc.to_string_lossy().into_owned());
         }
 
+        if p.k9s_isolated() {
+            plan.k9s_config_dir = Some(k9s::config_dir(home, name));
+        }
+        if let Some(d) = &plan.k9s_config_dir {
+            plan.set
+                .insert("K9S_CONFIG_DIR".into(), d.to_string_lossy().into_owned());
+        }
+
         if !opts.no_colour {
             plan.colour = p.colour.clone();
         }
@@ -128,7 +143,7 @@ impl EnvPlan {
         Ok(plan)
     }
 
-    fn add_identity(&mut self, p: &ResolvedHat, secrets: &Secrets) {
+    fn add_identity(&mut self, p: &ResolvedHat, secrets: &Secrets, home: &std::path::Path) {
         if let Some(n) = &p.identity.name {
             self.set.insert("GIT_AUTHOR_NAME".into(), n.clone());
             self.set.insert("GIT_COMMITTER_NAME".into(), n.clone());
@@ -138,15 +153,26 @@ impl EnvPlan {
             self.set.insert("GIT_COMMITTER_EMAIL".into(), e.clone());
         }
         // git 2.31+ reads GIT_CONFIG_COUNT/KEY_n/VALUE_n, which is how any git
-        // setting becomes per-shell without touching ~/.gitconfig.
+        // setting becomes per-shell without touching ~/.gitconfig. Slot 0
+        // includes the hat's own file (git skips a missing one); the signing
+        // key follows it, so the hat's explicit setting wins over the file.
+        let mut config = vec![(
+            "include.path".to_string(),
+            git::config_path(home, &self.hat)
+                .to_string_lossy()
+                .into_owned(),
+        )];
         if let Some(key) = &p.identity.signing_key {
             let value = resolve(key, secrets);
             if !value.is_empty() {
-                self.set.insert("GIT_CONFIG_COUNT".into(), "1".into());
-                self.set
-                    .insert("GIT_CONFIG_KEY_0".into(), "user.signingkey".into());
-                self.set.insert("GIT_CONFIG_VALUE_0".into(), value);
+                config.push(("user.signingkey".into(), value));
             }
+        }
+        self.set
+            .insert("GIT_CONFIG_COUNT".into(), config.len().to_string());
+        for (i, (key, value)) in config.into_iter().enumerate() {
+            self.set.insert(format!("GIT_CONFIG_KEY_{i}"), key);
+            self.set.insert(format!("GIT_CONFIG_VALUE_{i}"), value);
         }
     }
 
@@ -218,6 +244,7 @@ hats:
       JIRA_EMAIL: jane@acme.example
   plain:
     kube: { isolate: false }
+    k9s: { isolate: false }
 "##;
 }
 
@@ -244,9 +271,34 @@ mod tests {
     #[test]
     fn the_signing_key_is_injected_per_shell_via_git_config_variables() {
         let p = plan("acme", EnvOptions::default());
-        assert_eq!(p.set["GIT_CONFIG_COUNT"], "1");
-        assert_eq!(p.set["GIT_CONFIG_KEY_0"], "user.signingkey");
-        assert_eq!(p.set["GIT_CONFIG_VALUE_0"], "SIGNKEY");
+        assert_eq!(p.set["GIT_CONFIG_COUNT"], "2");
+        assert_eq!(p.set["GIT_CONFIG_KEY_1"], "user.signingkey");
+        assert_eq!(p.set["GIT_CONFIG_VALUE_1"], "SIGNKEY");
+    }
+
+    #[test]
+    fn every_hat_includes_its_own_git_config_first() {
+        let p = plan("acme", EnvOptions::default());
+        assert_eq!(p.set["GIT_CONFIG_KEY_0"], "include.path");
+        assert_eq!(p.set["GIT_CONFIG_VALUE_0"], "/home/t/.gitconfig.d/acme");
+
+        let plain = plan("plain", EnvOptions::default());
+        assert_eq!(plain.set["GIT_CONFIG_COUNT"], "1");
+        assert_eq!(
+            plain.set["GIT_CONFIG_VALUE_0"],
+            "/home/t/.gitconfig.d/plain"
+        );
+    }
+
+    #[test]
+    fn k9s_points_at_a_per_hat_directory_unless_the_hat_opts_out() {
+        let p = plan("acme", EnvOptions::default());
+        assert_eq!(p.set["K9S_CONFIG_DIR"], "/home/t/.config/k9s/hats/acme");
+
+        let plain = plan("plain", EnvOptions::default());
+        assert!(plain.k9s_config_dir.is_none());
+        assert!(!plain.set.contains_key("K9S_CONFIG_DIR"));
+        assert!(plain.unset.contains(&"K9S_CONFIG_DIR".to_string()));
     }
 
     #[test]
@@ -260,7 +312,8 @@ mod tests {
             EnvOptions::default(),
         )
         .unwrap();
-        assert!(!p.set.contains_key("GIT_CONFIG_COUNT"));
+        assert_eq!(p.set["GIT_CONFIG_COUNT"], "1", "only the include");
+        assert!(!p.set.contains_key("GIT_CONFIG_KEY_1"));
         assert_eq!(p.missing_secrets, vec!["git_signing_key"]);
     }
 

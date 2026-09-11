@@ -257,7 +257,7 @@ fn show(app: &App, plan: &Plan, show_secrets: bool) {
         app.ui.warn(note);
     }
 
-    if plan.entries.is_empty() && plan.hooks.is_empty() {
+    if plan.entries.is_empty() && plan.scaffolds.is_empty() && plan.hooks.is_empty() {
         app.ui
             .say("No managed files. Check the groups in ~/.hats/config.yaml.");
         return;
@@ -299,6 +299,19 @@ fn show(app: &App, plan: &Plan, show_secrets: bool) {
             Body::Binary { old, new } => app.ui.say(format!("      (binary: {old} → {new} bytes)")),
             Body::Whole { lines } => app.ui.say(format!("      ({lines} lines)")),
             Body::None => {}
+        }
+    }
+
+    if !plan.scaffolds.is_empty() {
+        app.ui.say("");
+        app.ui.say("Scaffold (created once, then left alone)");
+        for s in &plan.scaffolds {
+            let line = format!("  + {:<34} {}", s.display, s.how);
+            app.ui.say(if colour {
+                line.green().to_string()
+            } else {
+                line
+            });
         }
     }
 

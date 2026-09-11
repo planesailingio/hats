@@ -271,6 +271,7 @@ fn ask_one_hat(
             },
             |k| k.context.is_some(),
         ),
+        k9s: None,
         env: IndexMap::new(),
         path: Vec::new(),
     })

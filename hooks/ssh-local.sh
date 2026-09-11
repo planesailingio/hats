@@ -23,15 +23,19 @@ cat > "$readme" <<'README'
     Host * defaults                     managed by hats, in ~/.ssh/config
 
 ssh takes the FIRST value it finds for each option, so a hat's file overrides
-common.conf, and both override the defaults. Name a file after each hat that needs one:
+common.conf, and both override the defaults. Each file is named after its hat:
 
     ~/.ssh/config.d/acme.conf       read under `hat acme`
     ~/.ssh/config.d/globex.conf     read under `hat globex`
     ~/.ssh/config.d/normal.conf     read under `hat normal`
 
-A hat with no file just gets common.conf and the defaults. Nothing else here is read,
-and hat inheritance does not reach ssh: a hat that `inherits: normal` does not read
-normal.conf.
+`hats apply` creates common.conf and a file for every hat in ~/.hats/config.yaml,
+each holding one comment line. From then on they are yours: hats never updates or
+removes them, even when the hat goes.
+
+A hat with no file (one added since the last apply) just gets common.conf and the
+defaults. Nothing else here is read, and hat inheritance does not reach ssh: a hat
+that `inherits: normal` does not read normal.conf.
 
 Each file is ordinary ssh config. Hostnames shared across clients (github.com is the
 usual one) need nothing special: each hat's file has its own block, and only one of

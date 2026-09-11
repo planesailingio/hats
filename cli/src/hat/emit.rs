@@ -233,6 +233,47 @@ mod tests {
         );
     }
 
+    /// The per-hat git config, proven with a real git: the include costs
+    /// nothing while the file is missing, reaches it once it exists, and the
+    /// signing key still resolves beside it.
+    #[test]
+    fn git_reads_the_hats_own_config_file() {
+        if which::which("git").is_err() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        let cfg = config(PROFILES);
+        let s = secrets(&[("git_signing_key", "SIGNKEY")]);
+        let opts = EnvOptions {
+            no_colour: true,
+            ..Default::default()
+        };
+        let script = Zsh.emit(&EnvPlan::build(&cfg, "acme", &s, home.path(), opts).unwrap());
+        let git = |key: &str| {
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(format!("{script}\ngit config --get {key}"))
+                .current_dir(home.path())
+                .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+
+        assert_eq!(
+            git("user.signingkey"),
+            "SIGNKEY",
+            "a missing include broke git"
+        );
+
+        let file = crate::hat::git::config_path(home.path(), "acme");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "[hats]\n\tprobe = acme\n").unwrap();
+        assert_eq!(git("hats.probe"), "acme");
+        assert_eq!(git("user.signingkey"), "SIGNKEY");
+    }
+
     /// The leak fix, proven in a real shell: start with the previous client's
     /// variables set, switch to a hat that sets none of them, and confirm
     /// they are gone.

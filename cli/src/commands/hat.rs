@@ -101,6 +101,8 @@ fn show(app: &App, cfg: &Config, name: &str, json: bool) -> Result<()> {
         p.kube.context.as_deref().unwrap_or("-"),
         p.kube_isolated()
     ));
+    app.ui
+        .say(format!("k9s       isolated: {}", p.k9s_isolated()));
     if let Some(c) = &p.colour {
         app.ui.say(format!("tint      {c}"));
     }

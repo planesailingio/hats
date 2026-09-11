@@ -230,7 +230,7 @@ $ hats plan
   + ~/.config/starship.toml            create  (140 lines)
   - ~/.env.d/dev.zsh                   destroy
 
-Plan: 1 to add, 1 to change, 1 to destroy, 0 permission changes; 1 hook to run.
+Plan: 1 to add, 1 to change, 1 to destroy, 0 permission changes, 0 to scaffold; 1 hook to run.
 ```
 
 If that reads like `terraform plan`, good. That was the idea.
@@ -258,11 +258,11 @@ hats:
 `{ secret: ... }` is a reference, not a value: the token itself never goes near
 this file.
 
-Notice there's no `aws:` block. Each hat gets its own `~/.kube/config` and its
-own `~/.aws/config` + `~/.aws/credentials` by default — that's rule 2, below —
-so a stray `use-context`, or an `aws sso login`, can only ever affect the shell
-that ran it. Turn either off per hat with `aws: { isolate: false }` or
-`kube: { isolate: false }`.
+Notice there's no `aws:` block. Each hat gets its own `~/.kube/config`, its
+own `~/.aws/config` + `~/.aws/credentials` and its own k9s directory by default
+— that's rule 2, below — so a stray `use-context`, or an `aws sso login`, can
+only ever affect the shell that ran it. Turn any of them off per hat with
+`aws: { isolate: false }`, `kube: { isolate: false }` or `k9s: { isolate: false }`.
 
 SSH needs no copy. `~/.ssh/config` includes `~/.ssh/config.d/${HATS_HAT}.conf`,
 then `~/.ssh/config.d/common.conf` for hosts every hat shares, then hats' own
@@ -271,6 +271,16 @@ the hosts and keys of the hat it's wearing — `github.com` can use a different
 key in every terminal, with no wrappers. Those files are machine-local like the
 hats themselves; `~/.ssh/config.d/README` has the recipe. It needs OpenSSH 9.9
 or later, which `hats doctor` checks.
+
+git and k9s follow the hat too. Every shell includes `~/.gitconfig.d/<hat>`, so
+a client's `url.insteadOf` or `core.sshCommand` applies under that hat alone.
+k9s gets `K9S_CONFIG_DIR=~/.config/k9s/hats/<hat>`, with the managed theme
+linked in, so one client's plugins and aliases never show up under another.
+
+You don't have to create any of these files. `hats apply` scaffolds whatever a
+hat is missing: a comment line for ssh and git, a copy of the shared file for
+AWS and kube, the theme links for k9s. Then it leaves them alone for good.
+They're never updated, and removing a hat doesn't delete them.
 
 ## The four rules it's built on
 
@@ -421,6 +431,8 @@ tell you.
 | `~/.hats/config.yaml`  | **Your** hats, identities and endpoints. Machine-local, never in git.                         |
 | `~/.hats/secrets.yaml` | Fetched tokens, mode 0600.                                                                    |
 | `~/.ssh/config.d/`     | SSH hosts and keys: `<hat>.conf` for the active hat, `common.conf` for all. Never in git.     |
+| `~/.gitconfig.d/`      | Per-hat git settings: `<hat>`, included by shells wearing that hat. Never in git.             |
+| `~/.config/k9s/hats/`  | Per-hat k9s config: `<hat>/` links back to the managed theme. Machine-local.                  |
 
 Hats are deliberately not in this repo. It ships defaults anyone can use;
 who you work for stays on your laptop.

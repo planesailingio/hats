@@ -30,8 +30,9 @@ pub fn credentials_path(home: &Path, hat: &str) -> PathBuf {
     dir(home).join(format!("{hat}.credentials"))
 }
 
-/// The shared file a per-hat copy is seeded from, with symlinks resolved.
-fn shared(home: &Path, name: &str) -> Option<PathBuf> {
+/// The shared file (`config` or `credentials`) a per-hat copy is seeded from,
+/// with symlinks resolved.
+pub fn shared(home: &Path, name: &str) -> Option<PathBuf> {
     let path = home.join(".aws").join(name);
     let resolved = std::fs::canonicalize(&path).unwrap_or(path);
     resolved.is_file().then_some(resolved)
@@ -45,13 +46,25 @@ fn shared(home: &Path, name: &str) -> Option<PathBuf> {
 /// later edit to the shared files does not propagate, which is a documented
 /// sharp edge rather than a bug.
 pub fn isolate(home: &Path, hat: &str) -> Result<(PathBuf, PathBuf)> {
+    Ok((seed_config(home, hat)?, seed_credentials(home, hat)?))
+}
+
+/// Seed this hat's own config, once. Also how `hats apply` scaffolds it.
+pub fn seed_config(home: &Path, hat: &str) -> Result<PathBuf> {
+    private_dir(home)?;
+    seed(&config_path(home, hat), shared(home, "config"))
+}
+
+/// Seed this hat's own credentials, once.
+pub fn seed_credentials(home: &Path, hat: &str) -> Result<PathBuf> {
+    private_dir(home)?;
+    seed(&credentials_path(home, hat), shared(home, "credentials"))
+}
+
+fn private_dir(home: &Path) -> Result<()> {
     let d = dir(home);
     std::fs::create_dir_all(&d).with_context(|| format!("creating {}", d.display()))?;
-    owner_only_dir(&d)?;
-
-    let config = seed(&config_path(home, hat), shared(home, "config"))?;
-    let credentials = seed(&credentials_path(home, hat), shared(home, "credentials"))?;
-    Ok((config, credentials))
+    owner_only_dir(&d)
 }
 
 /// Copy `base` to `target` if `target` does not exist yet, else leave it alone.

@@ -16,6 +16,7 @@ use crate::engine::diff::{self, Body, Stats};
 use crate::engine::redact::Redactor;
 use crate::engine::render::{RedactMode, RenderContext, Renderer};
 use crate::engine::state::{self, State};
+use crate::hat::scaffold::{self, Scaffold};
 use crate::hooks::{self, HookPlan};
 use crate::model::{Filter, ManagedFile};
 use crate::platform::Platform;
@@ -95,23 +96,32 @@ pub struct Summary {
     pub mode: usize,
     pub unchanged: usize,
     pub conflict: usize,
+    pub scaffold: usize,
     pub hooks: usize,
 }
 
 impl Summary {
     pub fn has_changes(&self) -> bool {
-        self.add + self.change + self.destroy + self.mode + self.conflict + self.hooks > 0
+        self.add
+            + self.change
+            + self.destroy
+            + self.mode
+            + self.conflict
+            + self.scaffold
+            + self.hooks
+            > 0
     }
 
     /// The terraform-style one-liner.
     pub fn line(&self) -> String {
         format!(
-            "Plan: {} to add, {} to change, {} to destroy, {} permission change{}; {} hook{} to run.",
+            "Plan: {} to add, {} to change, {} to destroy, {} permission change{}, {} to scaffold; {} hook{} to run.",
             self.add,
             self.change,
             self.destroy,
             self.mode,
             if self.mode == 1 { "" } else { "s" },
+            self.scaffold,
             self.hooks,
             if self.hooks == 1 { "" } else { "s" },
         )
@@ -122,6 +132,8 @@ impl Summary {
 #[derive(Debug)]
 pub struct Plan {
     pub entries: Vec<Entry>,
+    /// Per-hat files to create once. Not managed: see [`scaffold`].
+    pub scaffolds: Vec<Scaffold>,
     pub hooks: Vec<HookPlan>,
     pub summary: Summary,
     /// Secrets referenced anywhere but not fetched.
@@ -182,7 +194,8 @@ pub fn plan(opts: &PlanOptions<'_>) -> Result<Plan> {
     // Files hats owned last time but does not now: a disabled group, or a file
     // removed upstream. Only detectable from state.
     let managed: Vec<PathBuf> = files.iter().map(|f| f.target.clone()).collect();
-    if opts.filter.targets.is_empty() && opts.filter.groups.is_empty() {
+    let unfiltered = opts.filter.targets.is_empty() && opts.filter.groups.is_empty();
+    if unfiltered {
         for orphan in opts.state.orphans(&managed) {
             let recorded = opts.state.file(&orphan);
             let current = std::fs::read(&orphan).ok();
@@ -208,6 +221,15 @@ pub fn plan(opts: &PlanOptions<'_>) -> Result<Plan> {
     }
 
     entries.sort_by(|a, b| a.target.cmp(&b.target));
+
+    // Like orphans, only on an unfiltered run: `--target .zshrc` must not
+    // create a hat's ssh file.
+    let scaffolds = if unfiltered {
+        scaffold::wanted(opts.cfg, &opts.platform.home, &files)
+    } else {
+        Vec::new()
+    };
+    summary.scaffold = scaffolds.len();
 
     let hooks = if opts.skip_hooks {
         Vec::new()
@@ -247,6 +269,7 @@ pub fn plan(opts: &PlanOptions<'_>) -> Result<Plan> {
 
     Ok(Plan {
         entries,
+        scaffolds,
         hooks,
         summary,
         missing_secrets,
@@ -569,13 +592,44 @@ mod tests {
             change: 2,
             destroy: 1,
             mode: 1,
+            scaffold: 4,
             hooks: 2,
             ..Default::default()
         };
         assert_eq!(
             s.line(),
-            "Plan: 3 to add, 2 to change, 1 to destroy, 1 permission change; 2 hooks to run."
+            "Plan: 3 to add, 2 to change, 1 to destroy, 1 permission change, 4 to scaffold; 2 hooks to run."
         );
+    }
+
+    #[test]
+    fn every_hat_is_scaffolded_apart_from_the_managed_files() {
+        let t = Harness::new();
+        let p = t.plan();
+        let got: Vec<&str> = p.scaffolds.iter().map(|s| s.display.as_str()).collect();
+        assert_eq!(
+            got,
+            vec![
+                "~/.aws/.hats/normal.config",
+                "~/.aws/.hats/normal.credentials",
+                "~/.gitconfig.d/normal",
+                "~/.kube/config.normal",
+                "~/.ssh/config.d/common.conf",
+                "~/.ssh/config.d/normal.conf",
+            ]
+        );
+        assert_eq!(p.summary.scaffold, 6);
+        assert_eq!(p.summary.add, 2, "a scaffold is not a managed file");
+        assert!(p.summary.line().contains("6 to scaffold"));
+    }
+
+    #[test]
+    fn a_filtered_plan_scaffolds_nothing() {
+        let t = Harness::new();
+        let p = t.plan_with(|o| o.filter.targets = vec![PathBuf::from(".zshrc")]);
+        assert!(p.scaffolds.is_empty());
+        let p = t.plan_with(|o| o.filter.groups = vec!["ssh".into()]);
+        assert!(p.scaffolds.is_empty());
     }
 
     #[test]

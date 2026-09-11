@@ -20,7 +20,7 @@ pub fn config_path(home: &Path, hat: &str) -> PathBuf {
 /// Resolving matters: on this machine `~/.kube/config` is a symlink to a k3s
 /// file, and copying the link rather than its target would produce a config
 /// that still aliases the shared state.
-fn shared_config(home: &Path) -> Option<PathBuf> {
+pub fn shared_config(home: &Path) -> Option<PathBuf> {
     let path = home.join(".kube").join("config");
     let resolved = std::fs::canonicalize(&path).unwrap_or(path);
     resolved.is_file().then_some(resolved)
