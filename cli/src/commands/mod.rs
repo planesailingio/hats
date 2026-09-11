@@ -37,10 +37,7 @@ pub fn dispatch(app: &mut App, command: &Command) -> Result<i32> {
             doctor::run(app, args)?;
             Ok(0)
         }
-        Command::Hat(args) => {
-            hat::run(app, args)?;
-            Ok(0)
-        }
+        Command::Hat(args) => hat::run(app, args),
         Command::Plan(args) => plan::plan(app, args),
         Command::Apply(args) => plan::apply(app, args),
         Command::Diff(args) => plan::diff(app, args),

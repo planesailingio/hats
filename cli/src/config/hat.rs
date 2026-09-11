@@ -23,6 +23,10 @@ pub const ALWAYS_OWNED: &[&str] = &[
     "ENV_PROFILE",
     "KUBECONFIG",
     "K9S_CONFIG_DIR",
+    "CODER_CONFIG_DIR",
+    // `coder config-ssh` writes into the hat's own ssh file, never the
+    // managed ~/.ssh/config.
+    "CODER_SSH_CONFIG_FILE",
     "AWS_CONFIG_FILE",
     "AWS_SHARED_CREDENTIALS_FILE",
     // Every hat includes its own ~/.gitconfig.d/<hat> through slot 0.
@@ -35,6 +39,11 @@ pub const ALWAYS_OWNED: &[&str] = &[
     "AWS_PROFILE",
     "AWS_REGION",
     "AWS_DEFAULT_REGION",
+    // hats sets the URL only from `coder: { url }` and never sets the token,
+    // but a hand-exported one would send the next hat's coder commands to the
+    // last hat's deployment, logged in as the last hat's user.
+    "CODER_URL",
+    "CODER_SESSION_TOKEN",
 ];
 
 /// A value in a hat's `env` map: either a literal or a reference to a
@@ -141,6 +150,32 @@ impl K9sSpec {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoderSpec {
+    /// The deployment this hat uses, exported as `CODER_URL` so `coder login`
+    /// and every other coder command go there.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Give this hat its own coder config directory, and with it its own
+    /// login. Defaults to true, for the same reason as AWS: `coder login`
+    /// rewrites the shared session, and one terminal must not do that to
+    /// another.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isolate: Option<bool>,
+}
+
+impl CoderSpec {
+    fn merge(&mut self, child: &CoderSpec) {
+        if child.url.is_some() {
+            self.url = child.url.clone();
+        }
+        if child.isolate.is_some() {
+            self.isolate = child.isolate;
+        }
+    }
+}
+
 /// A hat exactly as written in `~/.hats/config.yaml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -160,6 +195,8 @@ pub struct HatSpec {
     pub kube: Option<KubeSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub k9s: Option<K9sSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coder: Option<CoderSpec>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub env: IndexMap<String, EnvValue>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -176,6 +213,7 @@ pub struct ResolvedHat {
     pub aws: AwsSpec,
     pub kube: KubeSpec,
     pub k9s: K9sSpec,
+    pub coder: CoderSpec,
     pub env: IndexMap<String, EnvValue>,
     pub path: Vec<String>,
 }
@@ -198,6 +236,11 @@ impl ResolvedHat {
     /// Whether this hat gets its own k9s config directory.
     pub fn k9s_isolated(&self) -> bool {
         self.k9s.isolate.unwrap_or(true)
+    }
+
+    /// Whether this hat gets its own coder config directory and login.
+    pub fn coder_isolated(&self) -> bool {
+        self.coder.isolate.unwrap_or(true)
     }
 
     /// Every environment variable this hat sets, derived plus explicit.
@@ -298,6 +341,7 @@ pub fn resolve(
         aws: AwsSpec::default(),
         kube: KubeSpec::default(),
         k9s: K9sSpec::default(),
+        coder: CoderSpec::default(),
         env: IndexMap::new(),
         path: Vec::new(),
     };
@@ -322,6 +366,9 @@ pub fn resolve(
         }
         if let Some(k9s) = &spec.k9s {
             out.k9s.merge(k9s);
+        }
+        if let Some(coder) = &spec.coder {
+            out.coder.merge(coder);
         }
         for (k, v) in &spec.env {
             out.env.insert(k.clone(), v.clone());
@@ -466,6 +513,8 @@ acme:
             "HATS_HAT",
             "KUBECONFIG",
             "K9S_CONFIG_DIR",
+            "CODER_CONFIG_DIR",
+            "CODER_SESSION_TOKEN",
         ] {
             assert!(keys.contains(expected), "missing {expected}");
         }
@@ -476,6 +525,33 @@ acme:
         let hats = spec("base: {}\nchild:\n  inherits: base\n  k9s: { isolate: false }\n");
         assert!(resolve("base", &hats, None).unwrap().k9s_isolated());
         assert!(!resolve("child", &hats, None).unwrap().k9s_isolated());
+    }
+
+    #[test]
+    fn coder_isolation_defaults_to_on_and_the_url_is_inherited() {
+        let hats = spec(
+            "base:\n  coder: { url: https://coder.example }\n\
+             child:\n  inherits: base\n  coder: { isolate: false }\n",
+        );
+        assert!(resolve("base", &hats, None).unwrap().coder_isolated());
+        let child = resolve("child", &hats, None).unwrap();
+        assert!(!child.coder_isolated());
+        assert_eq!(child.coder.url.as_deref(), Some("https://coder.example"));
+    }
+
+    /// `coder:` is optional at every level: a hat without it, with it empty or
+    /// with it bare parses and gets the defaults, and saving a hat back never
+    /// writes a `coder:` the user did not.
+    #[test]
+    fn the_coder_block_is_optional() {
+        let hats = spec("none: {}\nempty:\n  coder: {}\nbare:\n  coder:\n");
+        for name in ["none", "empty", "bare"] {
+            let p = resolve(name, &hats, None).unwrap();
+            assert!(p.coder_isolated(), "{name}");
+            assert!(p.coder.url.is_none(), "{name}");
+        }
+        let saved = serde_yaml_ng::to_string(&spec("none: {}\n")).unwrap();
+        assert!(!saved.contains("coder"), "{saved}");
     }
 
     /// The regression test for the original bug: switching to a hat that

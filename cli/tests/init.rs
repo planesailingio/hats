@@ -93,6 +93,8 @@ answers:
 struct Env {
     _dir: tempfile::TempDir,
     home: PathBuf,
+    /// Stands in for `$HOME`, where the per-hat files go.
+    user_home: PathBuf,
     repo: PathBuf,
     answers: PathBuf,
 }
@@ -101,12 +103,15 @@ impl Env {
     fn new(tag: Option<&str>) -> Self {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("hats-home");
+        let user_home = dir.path().join("home");
+        std::fs::create_dir_all(&user_home).unwrap();
         let repo = fixture_repo(dir.path(), tag);
         let answers = dir.path().join("answers.yaml");
         std::fs::write(&answers, ANSWERS).unwrap();
         Self {
             _dir: dir,
             home,
+            user_home,
             repo,
             answers,
         }
@@ -118,6 +123,8 @@ impl Env {
             .arg(&self.home)
             .arg("--no-color")
             .arg("--allow-mismatch")
+            // Per-hat files land in a throwaway home, never the developer's.
+            .env("HOME", &self.user_home)
             // Never inherit the developer's own hat state into a test.
             .env_remove("HATS_HAT")
             .env_remove("HATS_HOME")
@@ -379,6 +386,178 @@ fn a_repo_with_a_newer_schema_is_refused_with_an_upgrade_hint() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("brew upgrade hats"));
+}
+
+#[test]
+fn hat_create_adds_the_hat_and_makes_its_files() {
+    let env = Env::new(Some("v0.1.0"));
+    env.init().assert().success();
+
+    env.hats()
+        .args(["--non-interactive", "hat", "create", "globex"])
+        .args([
+            "--git-email",
+            "jane@globex.example",
+            "--kube-context",
+            "globex-prod",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("added hat `globex`"))
+        .stdout(predicate::str::contains("hat globex"));
+
+    // Inherits the default hat and records only the difference.
+    let cfg = env.config_text();
+    assert!(cfg.contains("globex:"), "{cfg}");
+    assert!(cfg.contains("inherits: normal"), "{cfg}");
+    assert!(cfg.contains("jane@globex.example"), "{cfg}");
+    assert!(cfg.contains("context: globex-prod"), "{cfg}");
+    let globex = &cfg[cfg.find("  globex:").unwrap()..];
+    let globex = &globex[..globex.find("\nsecrets:").unwrap_or(globex.len())];
+    assert!(
+        !globex.contains("name:"),
+        "the inherited git name must not be restated:\n{globex}"
+    );
+
+    for rel in [
+        ".gitconfig.d/globex",
+        ".aws/.hats/globex.config",
+        ".aws/.hats/globex.credentials",
+        ".kube/config.globex",
+    ] {
+        assert!(env.user_home.join(rel).is_file(), "{rel} was not created");
+    }
+    assert!(env.user_home.join(".config/coderv2/hats/globex").is_dir());
+    // The fixture repo manages no ~/.ssh/config, so nothing would read one.
+    assert!(!env.user_home.join(".ssh/config.d/globex.conf").exists());
+    // Only the new hat's files: the others wait for an apply.
+    assert!(!env.user_home.join(".gitconfig.d/acme").exists());
+
+    let out = env
+        .hats()
+        .args(["hat", "list", "--plain"])
+        .output()
+        .unwrap();
+    let names: Vec<&str> = std::str::from_utf8(&out.stdout).unwrap().lines().collect();
+    assert_eq!(names, vec!["normal", "acme", "globex"]);
+}
+
+#[test]
+fn hat_create_refuses_a_taken_unsafe_or_reserved_name() {
+    let env = Env::new(Some("v0.1.0"));
+    env.init().assert().success();
+    let before = env.config_text();
+
+    for (name, why) in [
+        ("acme", "already exists"),
+        ("../evil", "not a usable hat name"),
+        ("common", "reserved"),
+    ] {
+        env.hats()
+            .args(["--non-interactive", "hat", "create", name])
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(why));
+    }
+    env.hats()
+        .args([
+            "--non-interactive",
+            "hat",
+            "create",
+            "orphan",
+            "--inherits",
+            "ghost",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("ghost"));
+
+    assert_eq!(env.config_text(), before, "a refused create writes nothing");
+}
+
+#[test]
+fn hat_delete_removes_the_hat_and_moves_every_file_to_the_backup() {
+    let env = Env::new(Some("v0.1.0"));
+    env.init().assert().success();
+    env.hats()
+        .args(["--non-interactive", "hat", "create", "globex"])
+        .assert()
+        .success();
+
+    // Files hats never manages: an ssh block written by hand, and a k9s
+    // plugin the user added to the hat's own directory.
+    let ssh = env.user_home.join(".ssh/config.d/globex.conf");
+    std::fs::create_dir_all(ssh.parent().unwrap()).unwrap();
+    std::fs::write(&ssh, "Host github.com\n  IdentityFile ~/.ssh/id_globex\n").unwrap();
+    let plugin = env.user_home.join(".config/k9s/hats/globex/plugins.yaml");
+    std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+    std::fs::write(&plugin, "plugins: {}\n").unwrap();
+
+    env.hats()
+        .args(["hat", "delete", "globex", "--yes"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed hat `globex`"));
+
+    assert!(!env.config_text().contains("globex"));
+    for rel in [
+        ".ssh/config.d/globex.conf",
+        ".gitconfig.d/globex",
+        ".aws/.hats/globex.config",
+        ".aws/.hats/globex.credentials",
+        ".kube/config.globex",
+        ".config/k9s/hats/globex",
+        ".config/coderv2/hats/globex",
+    ] {
+        assert!(
+            env.user_home.join(rel).symlink_metadata().is_err(),
+            "{rel} survived the delete"
+        );
+    }
+
+    // Nothing destroyed outright: the files and the old config are in one
+    // backup directory.
+    let backups: Vec<PathBuf> = std::fs::read_dir(env.home.join("backups"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    let kept = |rel: &str| backups.iter().any(|b| b.join(rel).exists());
+    assert!(kept(".ssh/config.d/globex.conf"));
+    assert!(kept(".config/k9s/hats/globex/plugins.yaml"));
+    assert!(kept(".kube/config.globex"));
+    assert!(kept("config.yaml"));
+
+    // The rest of the machine is untouched.
+    env.hats().args(["hat", "show", "acme"]).assert().success();
+}
+
+#[test]
+fn hat_delete_asks_first_and_refuses_what_would_break_the_config() {
+    let env = Env::new(Some("v0.1.0"));
+    env.init().assert().success();
+    let before = env.config_text();
+
+    // No --yes and nobody to ask: the default answer is no.
+    env.hats()
+        .args(["--non-interactive", "hat", "delete", "acme"])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("Nothing deleted"));
+
+    // acme inherits from normal, which is also the default hat.
+    env.hats()
+        .args(["hat", "delete", "normal", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("acme inherits from `normal`"));
+
+    env.hats()
+        .args(["hat", "delete", "ghost", "--yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no hat named `ghost`"));
+
+    assert_eq!(env.config_text(), before, "a refused delete writes nothing");
 }
 
 #[test]

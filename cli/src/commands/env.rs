@@ -14,7 +14,7 @@ use minijinja::{Environment, context};
 use crate::app::App;
 use crate::cli::{EnvArgs, ShellInitArgs};
 use crate::hat::emit::{ShellEmitter, Zsh, sh_quote};
-use crate::hat::{EnvOptions, EnvPlan, aws, k9s, kube};
+use crate::hat::{EnvOptions, EnvPlan, aws, coder, k9s, kube};
 use crate::secrets::store::Secrets;
 
 /// The integration script, compiled into the binary so a mid-upgrade repo
@@ -109,6 +109,23 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
             Err(e) => {
                 app.ui.detail(format!("k9s isolation skipped: {e:#}"));
                 plan.set.shift_remove("K9S_CONFIG_DIR");
+            }
+        }
+    }
+
+    // Once CODER_CONFIG_DIR is set the session token is written there, so the
+    // directory must exist, owner-only, before the first `coder login`.
+    if plan.coder_config_dir.is_some() {
+        match coder::isolate(&platform.home, &name) {
+            Ok(dir) => {
+                plan.set.insert(
+                    "CODER_CONFIG_DIR".into(),
+                    dir.to_string_lossy().into_owned(),
+                );
+            }
+            Err(e) => {
+                app.ui.detail(format!("coder isolation skipped: {e:#}"));
+                plan.set.shift_remove("CODER_CONFIG_DIR");
             }
         }
     }

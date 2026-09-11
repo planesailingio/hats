@@ -166,6 +166,49 @@ pub enum HatCommand {
     },
     /// Show the variables hats unsets before every switch
     ResetList,
+    /// Add a hat to ~/.hats/config.yaml and create its per-hat files
+    Create(HatCreateArgs),
+    /// Remove a hat and move every file it owns, edited or not, to the backups
+    Delete {
+        name: String,
+        /// Do not ask for confirmation
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct HatCreateArgs {
+    /// Name for the hat: letters, digits, `-`, `_` and `.`
+    pub name: String,
+
+    /// Hat to inherit from (default: ask, suggesting the default hat)
+    #[arg(long, value_name = "HAT", conflicts_with = "no_inherit")]
+    pub inherits: Option<String>,
+
+    /// Inherit nothing but the machine identity
+    #[arg(long)]
+    pub no_inherit: bool,
+
+    /// Git author name, if not the inherited one
+    #[arg(long, value_name = "NAME")]
+    pub git_name: Option<String>,
+
+    /// Git author email, if not the inherited one
+    #[arg(long, value_name = "EMAIL")]
+    pub git_email: Option<String>,
+
+    /// Context to select in the hat's own kubeconfig
+    #[arg(long, value_name = "CONTEXT")]
+    pub kube_context: Option<String>,
+
+    /// Terminal background tint, e.g. "#0d2a52"
+    #[arg(long, alias = "color", value_name = "HEX")]
+    pub colour: Option<String>,
+
+    /// One line on what the hat is for
+    #[arg(long, value_name = "TEXT")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -440,6 +483,53 @@ mod tests {
             Command::Hat(a) => assert!(a.command.is_none()),
             other => panic!("expected hat, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn hat_create_and_delete_parse() {
+        let cli = Cli::try_parse_from([
+            "hats",
+            "hat",
+            "create",
+            "globex",
+            "--git-email",
+            "j@globex.example",
+            "--color",
+            "#0d2a52",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Hat(HatArgs {
+                command: Some(HatCommand::Create(a)),
+            }) => {
+                assert_eq!(a.name, "globex");
+                assert_eq!(a.git_email.as_deref(), Some("j@globex.example"));
+                assert_eq!(a.colour.as_deref(), Some("#0d2a52"), "--color is an alias");
+            }
+            other => panic!("expected hat create, got {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["hats", "hat", "delete", "globex", "-y"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Hat(HatArgs {
+                command: Some(HatCommand::Delete { yes: true, .. })
+            })
+        ));
+
+        assert!(
+            Cli::try_parse_from([
+                "hats",
+                "hat",
+                "create",
+                "x",
+                "--inherits",
+                "a",
+                "--no-inherit"
+            ])
+            .is_err(),
+            "--inherits and --no-inherit contradict each other"
+        );
     }
 
     #[test]

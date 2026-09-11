@@ -33,6 +33,93 @@ macOS and Linux, one binary, no runtime:
 curl -fsSL https://planesailingio.github.io/hats/install.sh | sh
 ```
 
+## Demo
+
+A client from first day to last, in two terminals. Jane already wears `normal`
+for her own work; Globex has just signed.
+
+**Day one.** One command adds the hat and every file it will read:
+
+```console
+$ hats hat create globex --git-email jane.doe@globex.example --kube-context globex-prod
+> Inherit defaults from `normal`? Yes
+> [globex] git name Jane
+> [globex] terminal tint #331420
+✓ added hat `globex` to ~/.hats/config.yaml
+✓ created ~/.aws/.hats/globex.config  (copy of ~/.aws/config)
+✓ created ~/.aws/.hats/globex.credentials  (empty)
+✓ created ~/.config/k9s/hats/globex/config.yaml  (→ ~/.config/k9s/config.yaml)
+✓ created ~/.config/k9s/hats/globex/skins  (→ ~/.config/k9s/skins)
+✓ created ~/.gitconfig.d/globex  (comment line)
+✓ created ~/.kube/config.globex  (copy of ~/.kube/config)
+✓ created ~/.ssh/config.d/globex.conf  (comment line)
+
+Put it on with `hat globex`.
+```
+
+Drop Globex's GitHub key into `~/.ssh/config.d/globex.conf`, and anything
+git-specific (a `url.insteadOf`, say) into `~/.gitconfig.d/globex`.
+
+**Terminal 1** puts the hat on. Everything that knows who you are now agrees:
+
+```console
+$ hat globex
+⛭ hat: globex  (git=jane.doe@globex.example  kube=globex-prod)
+
+$ git var GIT_AUTHOR_IDENT
+Jane <jane.doe@globex.example> 1789132800 +0100
+
+$ ssh -G github.com | grep identityfile
+identityfile /Users/jane/.ssh/id_ed25519_globex
+
+$ echo $KUBECONFIG
+/Users/jane/.kube/config.globex
+
+$ kubectl config use-context globex-staging
+Switched to context "globex-staging".
+```
+
+**Terminal 2**, open the whole time, is still Jane's own. Nothing above reached
+it, not even the `use-context`:
+
+```console
+$ hats hat current --summary
+⛭ hat: normal  (git=jane@example.com  kube=-)
+
+$ ssh -G github.com | grep identityfile
+identityfile /Users/jane/.ssh/id_ed25519
+
+$ echo $KUBECONFIG
+/Users/jane/.kube/config.normal
+```
+
+**Last day.** The hat goes, and so does everything it left behind: the files
+hats created, and whatever you added to them. None of it is destroyed outright —
+it all moves to a backup you can copy back from:
+
+```console
+$ hats hat delete globex
+Deleting hat `globex` removes it from ~/.hats/config.yaml and moves its files to ~/.hats/backups:
+  - ~/.aws/.hats/globex.config
+  - ~/.aws/.hats/globex.credentials
+  - ~/.config/k9s/hats/globex
+  - ~/.gitconfig.d/globex
+  - ~/.kube/config.globex
+  - ~/.ssh/config.d/globex.conf
+> Delete hat `globex`? Yes
+✓ moved ~/.aws/.hats/globex.config
+✓ moved ~/.aws/.hats/globex.credentials
+✓ moved ~/.config/k9s/hats/globex
+✓ moved ~/.gitconfig.d/globex
+✓ moved ~/.kube/config.globex
+✓ moved ~/.ssh/config.d/globex.conf
+✓ removed hat `globex` from ~/.hats/config.yaml
+Undo by copying back from /Users/jane/.hats/backups/20261211T170412Z
+```
+
+No stale credentials, no orphaned kubeconfig with a production context in it,
+no ssh block for a client you no longer work for.
+
 ## The problem
 
 Every tool on your machine remembers who you are. No two of them agree on where
@@ -259,10 +346,11 @@ hats:
 this file.
 
 Notice there's no `aws:` block. Each hat gets its own `~/.kube/config`, its
-own `~/.aws/config` + `~/.aws/credentials` and its own k9s directory by default
-— that's rule 2, below — so a stray `use-context`, or an `aws sso login`, can
-only ever affect the shell that ran it. Turn any of them off per hat with
-`aws: { isolate: false }`, `kube: { isolate: false }` or `k9s: { isolate: false }`.
+own `~/.aws/config` + `~/.aws/credentials`, its own k9s directory and its own
+coder login by default — that's rule 2, below — so a stray `use-context`, an
+`aws sso login` or a `coder login` can only ever affect the shell that ran it.
+Turn any of them off per hat with `aws: { isolate: false }`,
+`kube: { isolate: false }`, `k9s: { isolate: false }` or `coder: { isolate: false }`.
 
 SSH needs no copy. `~/.ssh/config` includes `~/.ssh/config.d/${HATS_HAT}.conf`,
 then `~/.ssh/config.d/common.conf` for hosts every hat shares, then hats' own
@@ -277,10 +365,22 @@ a client's `url.insteadOf` or `core.sshCommand` applies under that hat alone.
 k9s gets `K9S_CONFIG_DIR=~/.config/k9s/hats/<hat>`, with the managed theme
 linked in, so one client's plugins and aliases never show up under another.
 
-You don't have to create any of these files. `hats apply` scaffolds whatever a
-hat is missing: a comment line for ssh and git, a copy of the shared file for
-AWS and kube, the theme links for k9s. Then it leaves them alone for good.
-They're never updated, and removing a hat doesn't delete them.
+coder gets `CODER_CONFIG_DIR=~/.config/coderv2/hats/<hat>`, which also moves its
+session token out of the macOS Keychain and into that directory, so each hat
+logs in on its own. `coder: { url: https://coder.acme.com }` exports
+`CODER_URL` for the hat, and `coder config-ssh` writes its workspace hosts into
+the hat's `~/.ssh/config.d/<hat>.conf` (hats sets `CODER_SSH_CONFIG_FILE`)
+rather than the `~/.ssh/config` hats manages.
+
+You don't have to create any of these files. `hats hat create` makes them along
+with the hat, and `hats apply` scaffolds whatever any hat is missing: a comment
+line for ssh and git, a copy of the shared file for AWS and kube, the theme
+links for k9s, an empty owner-only directory for coder. Then hats leaves them
+alone and never updates them. The one way
+they go is `hats hat delete <name>`, which takes the hat's whole set, edits and
+all, and moves it into `~/.hats/backups/` rather than deleting outright.
+Deleting a hat you've since edited out of `config.yaml` by hand won't find its
+files, so delete through hats.
 
 ## The four rules it's built on
 
@@ -323,12 +423,14 @@ Five of them cover almost every day:
 
 **Hats**
 
-|                        |                                                         |
-| ---------------------- | ------------------------------------------------------- |
-| `hats hat list`        | Every hat, active one marked                            |
-| `hats hat show <name>` | One hat with its inheritance folded in                  |
-| `hats hat current`     | Which hat this shell is wearing                         |
-| `hats env <name>`      | The shell code a switch would run, printed not executed |
+|                          |                                                            |
+| ------------------------ | ---------------------------------------------------------- |
+| `hats hat list`          | Every hat, active one marked                               |
+| `hats hat show <name>`   | One hat with its inheritance folded in                     |
+| `hats hat current`       | Which hat this shell is wearing                            |
+| `hats hat create <name>` | Add a hat and create its files; flags or prompts           |
+| `hats hat delete <name>` | Remove a hat and move its files, edits and all, to backups |
+| `hats env <name>`        | The shell code a switch would run, printed not executed    |
 
 **Dotfiles**
 
@@ -433,6 +535,7 @@ tell you.
 | `~/.ssh/config.d/`     | SSH hosts and keys: `<hat>.conf` for the active hat, `common.conf` for all. Never in git.     |
 | `~/.gitconfig.d/`      | Per-hat git settings: `<hat>`, included by shells wearing that hat. Never in git.             |
 | `~/.config/k9s/hats/`  | Per-hat k9s config: `<hat>/` links back to the managed theme. Machine-local.                  |
+| `~/.config/coderv2/hats/` | Per-hat coder login: `<hat>/` holds that hat's URL and session token, mode 0700.           |
 
 Hats are deliberately not in this repo. It ships defaults anyone can use;
 who you work for stays on your laptop.

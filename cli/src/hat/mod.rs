@@ -9,6 +9,7 @@
 //! unset list is the union of every hat's keys, not a list anyone maintains.
 
 pub mod aws;
+pub mod coder;
 pub mod emit;
 pub mod git;
 pub mod k9s;
@@ -40,6 +41,8 @@ pub struct EnvPlan {
     pub kube_context: Option<String>,
     /// This hat's own k9s directory, or None when isolation is off.
     pub k9s_config_dir: Option<PathBuf>,
+    /// This hat's own coder directory, or None when isolation is off.
+    pub coder_config_dir: Option<PathBuf>,
     /// This hat's own AWS files, or None when isolation is off.
     pub aws_config: Option<PathBuf>,
     pub aws_credentials: Option<PathBuf>,
@@ -86,6 +89,7 @@ impl EnvPlan {
             kubeconfig: None,
             kube_context: None,
             k9s_config_dir: None,
+            coder_config_dir: None,
             aws_config: None,
             aws_credentials: None,
             colour: None,
@@ -130,6 +134,26 @@ impl EnvPlan {
         if let Some(d) = &plan.k9s_config_dir {
             plan.set
                 .insert("K9S_CONFIG_DIR".into(), d.to_string_lossy().into_owned());
+        }
+
+        if p.coder_isolated() {
+            plan.coder_config_dir = Some(coder::config_dir(home, name));
+        }
+        if let Some(d) = &plan.coder_config_dir {
+            plan.set
+                .insert("CODER_CONFIG_DIR".into(), d.to_string_lossy().into_owned());
+        }
+        if let Some(url) = &p.coder.url {
+            plan.set.insert("CODER_URL".into(), url.clone());
+        }
+        // `coder config-ssh` writes to ~/.ssh/config unless told otherwise, and
+        // that file is hats'. Point it at the hat's own file, which the skeleton
+        // includes first, so workspace hosts resolve under this hat alone.
+        if cfg.group_enabled("ssh") {
+            plan.set.insert(
+                "CODER_SSH_CONFIG_FILE".into(),
+                ssh::config_path(home, name).to_string_lossy().into_owned(),
+            );
         }
 
         if !opts.no_colour {
@@ -239,12 +263,14 @@ hats:
     colour: "#331420"
     identity: { name: Jane Doe, email: jane@acme.example }
     kube: { context: acme }
+    coder: { url: "https://coder.acme.example" }
     env:
       JIRA_API_TOKEN: { secret: jira_token }
       JIRA_EMAIL: jane@acme.example
   plain:
     kube: { isolate: false }
     k9s: { isolate: false }
+    coder: { isolate: false }
 "##;
 }
 
@@ -299,6 +325,53 @@ mod tests {
         assert!(plain.k9s_config_dir.is_none());
         assert!(!plain.set.contains_key("K9S_CONFIG_DIR"));
         assert!(plain.unset.contains(&"K9S_CONFIG_DIR".to_string()));
+    }
+
+    #[test]
+    fn coder_points_at_a_per_hat_directory_unless_the_hat_opts_out() {
+        let p = plan("acme", EnvOptions::default());
+        assert_eq!(
+            p.set["CODER_CONFIG_DIR"],
+            "/home/t/.config/coderv2/hats/acme"
+        );
+        assert_eq!(p.set["CODER_URL"], "https://coder.acme.example");
+
+        // No `coder:` block at all: isolated by default, and no URL.
+        let normal = plan("normal", EnvOptions::default());
+        assert_eq!(
+            normal.set["CODER_CONFIG_DIR"],
+            "/home/t/.config/coderv2/hats/normal"
+        );
+        assert!(!normal.set.contains_key("CODER_URL"));
+
+        let plain = plan("plain", EnvOptions::default());
+        assert!(plain.coder_config_dir.is_none());
+        assert!(!plain.set.contains_key("CODER_CONFIG_DIR"));
+        assert!(!plain.set.contains_key("CODER_URL"));
+        assert!(plain.unset.contains(&"CODER_CONFIG_DIR".to_string()));
+        // hats never sets the token, but one exported by hand must not ride
+        // along into the next hat.
+        assert!(plain.unset.contains(&"CODER_SESSION_TOKEN".to_string()));
+    }
+
+    #[test]
+    fn coder_config_ssh_writes_to_the_hats_own_file_only_when_hats_manages_ssh() {
+        let p = plan("acme", EnvOptions::default());
+        assert!(!p.set.contains_key("CODER_SSH_CONFIG_FILE"));
+
+        let cfg = config(&format!("groups: {{ ssh: true }}\n{PROFILES}"));
+        let p = EnvPlan::build(
+            &cfg,
+            "acme",
+            &secrets(&[]),
+            std::path::Path::new("/home/t"),
+            EnvOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            p.set["CODER_SSH_CONFIG_FILE"],
+            "/home/t/.ssh/config.d/acme.conf"
+        );
     }
 
     #[test]

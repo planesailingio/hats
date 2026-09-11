@@ -25,7 +25,7 @@ const DEFAULT_REPO: &str = "https://github.com/planesailingio/hats.git";
 
 /// Suggested tints, cycled through as hats are added. Purple for personal,
 /// then colours distinct enough to tell apart at a glance in a wall of panes.
-const PALETTE: &[&str] = &["#2a2040", "#331420", "#0d2a52", "#0d3a2a", "#3a2f0d"];
+pub(crate) const PALETTE: &[&str] = &["#2a2040", "#331420", "#0d2a52", "#0d3a2a", "#3a2f0d"];
 
 pub fn run(app: &mut App, args: &InitArgs) -> Result<()> {
     if app.paths.is_initialised() && !args.force {
@@ -272,6 +272,7 @@ fn ask_one_hat(
             |k| k.context.is_some(),
         ),
         k9s: None,
+        coder: None,
         env: IndexMap::new(),
         path: Vec::new(),
     })
@@ -430,7 +431,7 @@ fn print_next_steps(app: &App, cfg: &LocalConfig) {
     app.ui.say("  hats --help               everything else");
 }
 
-fn non_empty(s: String) -> Option<String> {
+pub(crate) fn non_empty(s: String) -> Option<String> {
     let t = s.trim();
     (!t.is_empty()).then(|| t.to_string())
 }

@@ -386,7 +386,7 @@ mod tests {
         });
         assert!(files.hooks_run.is_empty());
         assert_eq!(files.created, 2);
-        assert_eq!(files.scaffolded, 6);
+        assert_eq!(files.scaffolded, 7);
 
         let t2 = Harness::new();
         let hooks = t2.apply_with(ApplyOptions {
@@ -423,8 +423,8 @@ mod tests {
     fn scaffolds_are_created_once_and_never_recorded() {
         let t = Harness::new();
         let first = t.apply();
-        assert_eq!(first.scaffolded, 6);
-        assert!(first.line().contains("6 scaffolded"));
+        assert_eq!(first.scaffolded, 7);
+        assert!(first.line().contains("7 scaffolded"));
 
         let conf = t.home.path().join(".ssh/config.d/normal.conf");
         let text = std::fs::read_to_string(&conf).unwrap();
