@@ -20,6 +20,8 @@ use crate::error::ConfigError;
 /// Environment variables hats always owns, whichever hat is active.
 pub const ALWAYS_OWNED: &[&str] = &[
     "HATS_HAT",
+    // Nothing sets this since the dev/staging/prod env bundles were removed,
+    // but a shell started before that still has it exported.
     "ENV_PROFILE",
     "KUBECONFIG",
     "K9S_CONFIG_DIR",

@@ -149,13 +149,12 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
 pub fn shell_init(app: &mut App, args: &ShellInitArgs) -> Result<()> {
     // shell-init must work before `hats init` has run, so a missing config is
     // not fatal: emit the functions with no baseline hat.
-    let (default_hat, env_bundles, repo_dir) = match app.config() {
+    let (default_hat, repo_dir) = match app.config() {
         Ok(cfg) => (
             Some(cfg.local.default_hat()),
-            cfg.group_enabled("env-bundles"),
             app.paths.repo.to_string_lossy().into_owned(),
         ),
-        Err(_) => (None, false, app.paths.repo.to_string_lossy().into_owned()),
+        Err(_) => (None, app.paths.repo.to_string_lossy().into_owned()),
     };
 
     if args.shell != "zsh" {
@@ -170,7 +169,6 @@ pub fn shell_init(app: &mut App, args: &ShellInitArgs) -> Result<()> {
     jinja.add_template("init", ZSH_INIT)?;
     let rendered = jinja.get_template("init")?.render(context! {
         default_hat => default_hat,
-        env_bundles => env_bundles,
         repo_dir => repo_dir,
     })?;
 
@@ -184,7 +182,7 @@ mod tests {
 
     /// Render the integration script the way `shell-init` does, without needing
     /// a configured machine.
-    fn render(default_hat: Option<&str>, env_bundles: bool) -> String {
+    fn render(default_hat: Option<&str>) -> String {
         let mut jinja = Environment::new();
         jinja.add_filter("sh_quote", |v: String| sh_quote(&v));
         jinja.add_template("init", ZSH_INIT).unwrap();
@@ -193,7 +191,6 @@ mod tests {
             .unwrap()
             .render(context! {
                 default_hat => default_hat,
-                env_bundles => env_bundles,
                 repo_dir => "/home/t/.hats/repo",
             })
             .unwrap()
@@ -219,23 +216,18 @@ mod tests {
 
     #[test]
     fn the_integration_script_is_valid_zsh_in_every_variant() {
-        for (profile, bundles) in [
-            (Some("normal"), true),
-            (Some("normal"), false),
-            (None, false),
-            (None, true),
-        ] {
-            let script = render(profile, bundles);
+        for profile in [Some("normal"), None] {
+            let script = render(profile);
             assert!(
                 parses_as_zsh(&script),
-                "invalid zsh for ({profile:?}, {bundles}):\n{script}"
+                "invalid zsh for {profile:?}:\n{script}"
             );
         }
     }
 
     #[test]
     fn it_defines_the_hat_function_and_its_completion() {
-        let script = render(Some("normal"), false);
+        let script = render(Some("normal"));
         assert!(script.contains("hat() {"));
         assert!(script.contains("compdef _hats_hats hat"));
         assert!(script.contains("fzf --prompt='hat > '"));
@@ -243,7 +235,7 @@ mod tests {
 
     #[test]
     fn the_baseline_eval_is_quiet_and_cannot_break_a_shell() {
-        let script = render(Some("normal"), false);
+        let script = render(Some("normal"));
         assert!(script.contains("hats env normal --quiet"));
         assert!(script.contains("2>/dev/null"));
         assert!(script.contains("|| true"), "shell startup must never fail");
@@ -251,7 +243,7 @@ mod tests {
 
     #[test]
     fn without_a_config_there_is_no_baseline_eval() {
-        let script = render(None, false);
+        let script = render(None);
         // The `hat` function itself calls `hats env`, so assert on the
         // baseline block specifically: the guard that runs it at shell start.
         assert!(
@@ -264,14 +256,8 @@ mod tests {
     }
 
     #[test]
-    fn envp_appears_only_when_the_bundles_group_is_enabled() {
-        assert!(render(Some("normal"), true).contains("envp()"));
-        assert!(!render(Some("normal"), false).contains("envp()"));
-    }
-
-    #[test]
     fn the_switch_captures_before_it_evals() {
-        let script = render(Some("normal"), false);
+        let script = render(Some("normal"));
         let capture = script.find("script=$(command hats env").unwrap();
         let evaluate = script.find("eval \"$script\"").unwrap();
         assert!(

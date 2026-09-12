@@ -228,7 +228,7 @@ mod tests {
             signing_key: None,
         });
         cfg.groups.insert("shell".into(), true);
-        cfg.groups.insert("env-bundles".into(), false);
+        cfg.groups.insert("editor".into(), false);
         let mut normal = HatSpec {
             colour: Some("#2a2040".into()),
             ..Default::default()
@@ -247,7 +247,7 @@ mod tests {
 
         let back = LocalConfig::load(&path).unwrap();
         assert_eq!(back.default_hat(), "normal");
-        assert!(!back.groups["env-bundles"]);
+        assert!(!back.groups["editor"]);
         assert_eq!(
             back.hats["normal"].env["EDITOR"],
             EnvValue::Literal("code --wait".into())

@@ -28,9 +28,6 @@ groups:
   tools:
     description: "mise global runtimes (python, node, go)"
     default: true
-  env-bundles:
-    description: "dev/staging/prod environment bundles for the envp picker"
-    default: false
   editor:
     description: "VS Code extension list (installed by a hook)"
     default: false
@@ -46,7 +43,6 @@ files:
   - { path: .config/k9s, group: theme }
   - { path: .config/lazygit, group: theme }
   - { path: .config/mise, group: tools }
-  - { path: .env.d, group: env-bundles }
   - { path: .config/hats/vscode-extensions.list, group: editor }
 
 hooks:

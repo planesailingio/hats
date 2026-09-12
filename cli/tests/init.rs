@@ -28,7 +28,7 @@ groups:
 files:
   - { path: .zshrc.j2, group: shell }
   - { path: .config/starship.toml, group: theme }
-  - { path: .env.d, group: extras }
+  - { path: .config/bat, group: extras }
 secrets:
   required: [git_signing_key]
 "#,

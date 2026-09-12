@@ -98,7 +98,7 @@ exactly as written, so give absolute paths, not ~ or $HOME:
 | shell env | `env:` and `path:` per hat, in `~/.hats/config.yaml` | exported by `hat <name>` | hats | Anything else. Cleared on every switch; `{ secret: <key> }` values come from `hats secrets fetch`. |
 | ssh | `~/.ssh/config` → `config.d/${HATS_HAT}.conf` → `common.conf` | `$HATS_HAT` in `Include` | hats creates, you fill | This directory. |
 | git | `~/.gitconfig` + `~/.gitconfig.d/<hat>` | `GIT_AUTHOR_*`, `GIT_COMMITTER_*`, `GIT_CONFIG_*` include | hats | Identity from `identity:`. `url.insteadOf`, signing and credential helpers go in `~/.gitconfig.d/<hat>`. |
-| aws | `~/.aws/.hats/<hat>.config`, `<hat>.credentials` | `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` | hats, on by default | `aws sso login` writes only this hat's files. `AWS_PROFILE` and `AWS_REGION` are cleared on every switch: set them in `env:`. |
+| aws | `~/.aws/.hats/<hat>.config`, `<hat>.credentials` | `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` | hats, on by default | `aws sso login` writes only this hat's files. Region and any other AWS variables belong in the hat's `env:`; strays are cleared on every switch. |
 | kubectl | `~/.kube/config.<hat>` | `KUBECONFIG`, `kube: { context }` | hats, on by default | A `use-context` cannot leak between terminals. |
 | k9s | `~/.config/k9s/hats/<hat>/` | `K9S_CONFIG_DIR` | hats, on by default | Links back to the shared theme; plugins, aliases and hotkeys per hat. |
 | coder | `~/.config/coderv2/hats/<hat>/` | `CODER_CONFIG_DIR`, `CODER_URL` from `coder: { url }`, `CODER_SSH_CONFIG_FILE` | hats, on by default | Own login per hat, token in that directory rather than the Keychain. A stray `CODER_SESSION_TOKEN` is cleared on every switch. |

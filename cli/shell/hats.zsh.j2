@@ -34,23 +34,6 @@ _hats_hats() {
 }
 compdef _hats_hats hat 2>/dev/null
 
-{% if env_bundles -%}
-# Environment bundles (dev/staging/prod) are orthogonal to hats:
-# a hat says who you are, a bundle says which environment you are pointing
-# at. Deliberately never automatic — prompting in every tmux pane is miserable.
-envp() {
-  local dir="$HOME/.env.d" choice
-  [ -d "$dir" ] || { echo "no ~/.env.d bundles" >&2; return 1; }
-  choice=$(ls "$dir"/*.zsh 2>/dev/null | xargs -n1 basename | sed 's/\.zsh$//' \
-    | fzf --prompt='env bundle > ' --height=40% --reverse) || return
-  [ -n "$choice" ] || return
-  # shellcheck disable=SC1090
-  source "$dir/$choice.zsh"
-  export ENV_PROFILE="$choice"
-  echo "→ $choice  (AWS_PROFILE=$AWS_PROFILE)"
-}
-{%- endif %}
-
 # Open the dotfiles checkout, and apply from anywhere.
 hats_edit() { ${EDITOR:-code} {{ repo_dir | sh_quote }}; }
 hats_apply() { command hats apply "$@"; }
