@@ -46,6 +46,13 @@ pub const ALWAYS_OWNED: &[&str] = &[
     // last hat's deployment, logged in as the last hat's user.
     "CODER_URL",
     "CODER_SESSION_TOKEN",
+    // The Terraform CLI config (credentials blocks, plugin cache, provider
+    // installation) is per-hat when isolated.
+    "TF_CLI_CONFIG_FILE",
+    // Azure CLI token cache and config are per-hat when isolated.
+    "AZURE_CONFIG_DIR",
+    // GitHub CLI auth token and config are per-hat when isolated.
+    "GH_CONFIG_DIR",
 ];
 
 /// A value in a hat's `env` map: either a literal or a reference to a
@@ -178,6 +185,60 @@ impl CoderSpec {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerraformSpec {
+    /// Give this hat its own Terraform CLI config file. Defaults to true:
+    /// `terraform login` and `credentials` blocks rewrite shared state, and
+    /// one terminal must not do that to another.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isolate: Option<bool>,
+}
+
+impl TerraformSpec {
+    fn merge(&mut self, child: &TerraformSpec) {
+        if child.isolate.is_some() {
+            self.isolate = child.isolate;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AzureSpec {
+    /// Give this hat its own Azure CLI config directory. Defaults to true:
+    /// `az login` rewrites the shared token cache, and one terminal must not
+    /// do that to another.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isolate: Option<bool>,
+}
+
+impl AzureSpec {
+    fn merge(&mut self, child: &AzureSpec) {
+        if child.isolate.is_some() {
+            self.isolate = child.isolate;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GithubSpec {
+    /// Give this hat its own GitHub CLI config directory. Defaults to true:
+    /// `gh auth login` rewrites the shared token, and one terminal must not
+    /// do that to another.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isolate: Option<bool>,
+}
+
+impl GithubSpec {
+    fn merge(&mut self, child: &GithubSpec) {
+        if child.isolate.is_some() {
+            self.isolate = child.isolate;
+        }
+    }
+}
+
 /// A hat exactly as written in `~/.hats/config.yaml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -199,6 +260,12 @@ pub struct HatSpec {
     pub k9s: Option<K9sSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coder: Option<CoderSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub terraform: Option<TerraformSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub azure: Option<AzureSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github: Option<GithubSpec>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub env: IndexMap<String, EnvValue>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -216,6 +283,9 @@ pub struct ResolvedHat {
     pub kube: KubeSpec,
     pub k9s: K9sSpec,
     pub coder: CoderSpec,
+    pub terraform: TerraformSpec,
+    pub azure: AzureSpec,
+    pub github: GithubSpec,
     pub env: IndexMap<String, EnvValue>,
     pub path: Vec<String>,
 }
@@ -243,6 +313,21 @@ impl ResolvedHat {
     /// Whether this hat gets its own coder config directory and login.
     pub fn coder_isolated(&self) -> bool {
         self.coder.isolate.unwrap_or(true)
+    }
+
+    /// Whether this hat gets its own Terraform CLI config file.
+    pub fn terraform_isolated(&self) -> bool {
+        self.terraform.isolate.unwrap_or(true)
+    }
+
+    /// Whether this hat gets its own Azure CLI config.
+    pub fn azure_isolated(&self) -> bool {
+        self.azure.isolate.unwrap_or(true)
+    }
+
+    /// Whether this hat gets its own GitHub CLI config.
+    pub fn github_isolated(&self) -> bool {
+        self.github.isolate.unwrap_or(true)
     }
 
     /// Every environment variable this hat sets, derived plus explicit.
@@ -344,6 +429,9 @@ pub fn resolve(
         kube: KubeSpec::default(),
         k9s: K9sSpec::default(),
         coder: CoderSpec::default(),
+        terraform: TerraformSpec::default(),
+        azure: AzureSpec::default(),
+        github: GithubSpec::default(),
         env: IndexMap::new(),
         path: Vec::new(),
     };
@@ -371,6 +459,15 @@ pub fn resolve(
         }
         if let Some(coder) = &spec.coder {
             out.coder.merge(coder);
+        }
+        if let Some(terraform) = &spec.terraform {
+            out.terraform.merge(terraform);
+        }
+        if let Some(azure) = &spec.azure {
+            out.azure.merge(azure);
+        }
+        if let Some(github) = &spec.github {
+            out.github.merge(github);
         }
         for (k, v) in &spec.env {
             out.env.insert(k.clone(), v.clone());

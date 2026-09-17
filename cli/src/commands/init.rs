@@ -273,6 +273,9 @@ fn ask_one_hat(
         ),
         k9s: None,
         coder: None,
+        terraform: None,
+        azure: None,
+        github: None,
         env: IndexMap::new(),
         path: Vec::new(),
     })

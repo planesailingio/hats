@@ -232,6 +232,13 @@ pub fn collect(app: &App) -> Vec<Check> {
                 checks.push(ssh_check(app));
             }
 
+            if cfg.group_enabled("editor")
+                && let Ok(platform) = app.platform()
+                && crate::hat::vscode::installed(&platform.home)
+            {
+                checks.push(vscode_check(&cfg, &platform.home));
+            }
+
             // Secrets file, if a provider is configured.
             if cfg.local.secrets.provider != crate::config::local::ProviderKind::None {
                 if app.paths.secrets.is_file() {
@@ -252,6 +259,32 @@ pub fn collect(app: &App) -> Vec<Check> {
     }
 
     checks
+}
+
+/// Each hat wants a VS Code profile of its own, which hats can only register
+/// while VS Code is closed.
+fn vscode_check(cfg: &crate::config::Config, home: &std::path::Path) -> Check {
+    use crate::hat::vscode;
+
+    let missing: Vec<String> = cfg
+        .hat_names()
+        .into_iter()
+        .filter(|name| !vscode::has_profile(home, name).unwrap_or(true))
+        .collect();
+
+    if missing.is_empty() {
+        return Check::ok("vscode", "every hat has a VS Code profile");
+    }
+    let hint = if vscode::running(home) {
+        "quit VS Code, then run `hats apply`"
+    } else {
+        "hats apply"
+    };
+    Check::warn(
+        "vscode",
+        format!("no VS Code profile for {}", missing.join(", ")),
+        Some(hint),
+    )
 }
 
 /// OpenSSH expands environment variables in `Include` from 9.9 on.

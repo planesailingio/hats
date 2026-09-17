@@ -28,6 +28,9 @@ groups:
   tools:
     description: "mise global runtimes (python, node, go)"
     default: true
+  terraform:
+    description: "~/.terraformrc and ~/.tofurc: a shared provider cache, checkpoint off"
+    default: true
   editor:
     description: "VS Code extension list (installed by a hook)"
     default: false
@@ -43,6 +46,8 @@ files:
   - { path: .config/k9s, group: theme }
   - { path: .config/lazygit, group: theme }
   - { path: .config/mise, group: tools }
+  - { path: .terraformrc, group: terraform }
+  - { path: .tofurc, group: terraform }
   - { path: .config/hats/vscode-extensions.list, group: editor }
 
 hooks:
@@ -90,12 +95,32 @@ hooks:
     trigger: { onchange: [hooks/ssh-local.sh] }
     script: hooks/ssh-local.sh
 
+  # Neither Terraform nor OpenTofu creates its plugin_cache_dir, and both skip
+  # caching without it. The hook reads the path back from the managed files and
+  # exits cleanly when the terraform group is off.
+  - name: terraform-plugin-cache
+    phase: after
+    trigger: { onchange: [files/.terraformrc, files/.tofurc, hooks/terraform-plugin-cache.sh] }
+    script: hooks/terraform-plugin-cache.sh
+
   # Only meaningful once the editor group is enabled; the hook exits cleanly
   # when the list is absent or the `code` command is not on PATH.
   - name: vscode-extensions
     phase: after
     trigger: { onchange: [files/.config/hats/vscode-extensions.list, hooks/vscode-extensions.sh] }
     script: hooks/vscode-extensions.sh
+
+  # The hats extension itself, built from the repo rather than the marketplace.
+  # Same gate as above: it exits cleanly when the editor group is off.
+  - name: vscode-hats-extension
+    phase: after
+    trigger:
+      onchange:
+        - vscode/hats/package.json
+        - vscode/hats/extension.js
+        - vscode/hats/README.md
+        - hooks/vscode-hats-extension.sh
+    script: hooks/vscode-hats-extension.sh
 
 secrets:
   # Advisory: `hats lint` warns when a hat refers to a secret outside this

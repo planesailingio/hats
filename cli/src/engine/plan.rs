@@ -612,16 +612,19 @@ mod tests {
             vec![
                 "~/.aws/.hats/normal.config",
                 "~/.aws/.hats/normal.credentials",
+                "~/.azure/.hats/normal",
                 "~/.config/coderv2/hats/normal",
+                "~/.config/gh/.hats/normal",
                 "~/.gitconfig.d/normal",
                 "~/.kube/config.normal",
                 "~/.ssh/config.d/common.conf",
                 "~/.ssh/config.d/normal.conf",
+                "~/.terraform.d/.hats/normal.tfrc",
             ]
         );
-        assert_eq!(p.summary.scaffold, 7);
+        assert_eq!(p.summary.scaffold, 10);
         assert_eq!(p.summary.add, 2, "a scaffold is not a managed file");
-        assert!(p.summary.line().contains("7 to scaffold"));
+        assert!(p.summary.line().contains("10 to scaffold"));
     }
 
     #[test]

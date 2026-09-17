@@ -38,10 +38,51 @@ compdef _hats_hats hat 2>/dev/null
 hats_edit() { ${EDITOR:-code} {{ repo_dir | sh_quote }}; }
 hats_apply() { command hats apply "$@"; }
 
+{% if vscode_profiles -%}
+# Open folders in this hat's VS Code profile, so each hat keeps its own
+# settings. VS Code then remembers the profile a folder was opened with.
+#
+# Only with a path: `code` alone focuses the last window, but with --profile it
+# would open a new empty one. `--ensure` registers any profile that is still
+# missing, which needs VS Code closed, which it is until the next line runs.
+# Any failure falls through to plain `code`: hats must never come between the
+# user and their editor.
+code() {
+  local arg path_given=0
+  for arg in "$@"; do
+    case "$arg" in -*) ;; *) path_given=1 ;; esac
+  done
+
+  if [ -n "${HATS_HAT:-}" ] && [ "$path_given" = 1 ] \
+     && [[ " $* " != *" --profile"* ]] \
+     && [[ "${1:-}" != (tunnel|serve-web|chat|agent) ]] \
+     && command hats hat vscode-profile --ensure "$HATS_HAT" >/dev/null 2>&1; then
+    command code --profile "$HATS_HAT" "$@"
+  else
+    command code "$@"
+  fi
+}
+{%- endif %}
+
 {% if default_hat -%}
 # Baseline for every new shell. Quiet and failure-tolerant: if hats is missing,
 # mid-upgrade, or unconfigured, the shell must still open normally.
 if [ -z "${HATS_HAT:-}" ]; then
   eval "$(command hats env {{ default_hat | sh_quote }} --quiet 2>/dev/null)" || true
 fi
+
+# Follow the nearest .hat file at or above the current directory. `hats env
+# --here` prints nothing unless the file in effect has changed, so a hat chosen
+# by hand inside a tree stays on until the shell leaves it. The summary is for a
+# hat that changed under a `cd`; a new shell starts quietly.
+_hats_here() {
+  local script before="${HATS_HAT:-}"
+  script=$(command hats env --here --quiet) || return 0
+  [ -n "$script" ] || return 0
+  eval "$script"
+  [ "${HATS_HAT:-}" = "$before" ] || [ "${1:-}" = quiet ] \
+    || command hats hat current --summary
+}
+autoload -Uz add-zsh-hook && add-zsh-hook chpwd _hats_here
+_hats_here quiet 2>/dev/null
 {%- endif %}

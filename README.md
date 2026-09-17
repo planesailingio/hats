@@ -86,6 +86,10 @@ changing it in one terminal changes it in all of them:
 | git          | `~/.gitconfig`                                 | `~/.gitconfig.d/<hat>`                              | `GIT_CONFIG_KEY_0`, plus `GIT_AUTHOR_*` and `GIT_COMMITTER_*` |
 | kubectl      | `~/.kube/config`                               | `~/.kube/config.<hat>`                              | `KUBECONFIG`                                                  |
 | AWS CLI      | `~/.aws/config` and `~/.aws/credentials`       | `~/.aws/.hats/<hat>.config` and `<hat>.credentials` | `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE`              |
+| Terraform    | `~/.terraformrc` and `~/.terraform.d/`         | `~/.terraform.d/.hats/<hat>.tfrc`                  | `TF_CLI_CONFIG_FILE`                                          |
+| Azure CLI    | `~/.azure/`                                    | `~/.azure/.hats/<hat>/`                             | `AZURE_CONFIG_DIR`                                            |
+| GitHub CLI   | `~/.config/gh/`                                | `~/.config/gh/.hats/<hat>/`                         | `GH_CONFIG_DIR`                                               |
+| VS Code      | one global `settings.json`                     | a VS Code profile per hat                           | `code --profile <hat>`, then VS Code remembers the folder     |
 | npm, pip     | `~/.npmrc`, a configured index URL             | the hat's `env:`                                    | `NPM_CONFIG_USERCONFIG`, `PIP_INDEX_URL`                      |
 | node, python | whatever the version manager last made default | the hat's `path:`                                   | `PATH`, prepended in that shell alone                         |
 | API tokens   | wherever they were last exported               | `~/.hats/secrets.yaml`                              | the hat's `env:` keys, unset on the next `hat`                |
@@ -103,7 +107,9 @@ current directory. kubie isolates kube contexts. None of them covers every tool,
 and using several together means several mechanisms that can disagree.
 
 hats applies the whole context with one command and shows the active hat in
-your prompt. Switching in one terminal does not affect any other.
+your prompt. Switching in one terminal does not affect any other. A folder can
+also name its hat in a `.hat` file, and the shell then switches on `cd` (see
+[Per-folder hats](#per-folder-hats)).
 ## Quick start
 
 ### 1. Install
@@ -139,7 +145,7 @@ hats init
 ```
 
 This clones the dotfiles into `~/.hats/repo`, asks which file groups to manage
-(for example shell, git, ssh, theme and toolchains), and prompts for one or more hats: git
+(for example shell, git, ssh, theme, terraform and toolchains), and prompts for one or more hats: git
 name and email, kube context and terminal tint. Additional hats can inherit from
 an existing one. Nothing is written to your home directory at this stage.
 
@@ -280,7 +286,8 @@ hats apply               # apply them
 ```
 
 Each terminal has its own hat. Opening a new terminal for a different context
-means running `hat` in that terminal.
+means running `hat` in that terminal, unless the folder it opens in names a hat
+(see [Per-folder hats](#per-folder-hats)).
 
 ### Changing a hat
 
@@ -301,6 +308,40 @@ until restarted or refreshed.
 
 Add the token to your vault (see [Secrets](#secrets)), run `hats secrets fetch`,
 and reference it from a hat as `{ secret: <key> }`.
+
+### Per-folder hats
+
+A folder can name the hat its whole tree wears. Put the hat's name in a file
+called `.hat`:
+
+```sh
+echo acme > ~/work/acme/.hat
+```
+
+From then on, `cd` into `~/work/acme` or anywhere below it puts the acme hat
+on, and a terminal that opens there starts in it. The rules:
+
+- The nearest `.hat` at or above the current directory wins, so a subfolder can
+  name a different hat from its parent.
+- Leaving the tree puts back the hat that was on before the folder took over.
+- A switch happens only when the `.hat` file in effect changes. If you run
+  `hat other` by hand inside a tree, that choice stays until you leave the tree
+  or cross into another one.
+- The file holds one hat name. Blank lines and lines starting with `#` are
+  ignored. An edit to a `.hat` already in effect is picked up the next time the
+  shell enters the tree, or in a new terminal.
+- A `.hat` that names a hat this machine does not have switches nothing, and
+  prints a warning on each `cd` within that tree until it is fixed.
+
+The file contains no code, so there is nothing to approve as there is with
+direnv. A `.hat` in a repository you cloned can only select one of your own
+hats by name, and a hat that changes on `cd` is announced with the same summary
+line `hat` prints.
+
+The shell tracks this with two variables: `HATS_HAT_FILE`, the `.hat` file in
+effect, and `HATS_HAT_PREV`, the hat to go back to. `hats env --here` prints
+what the `cd` hook would run in the current directory, and prints nothing when
+there is nothing to change.
 
 ### The `hat` function
 
@@ -374,17 +415,21 @@ hats:
 ### Per-hat tool isolation
 
 By default each hat gets its own configuration for the tools below, so commands
-such as `kubectl config use-context`, `aws sso login` or `coder login` only
+such as `kubectl config use-context`, `aws sso login`, `terraform init`, `az login` or `gh auth login` only
 affect the shell that ran them.
 
-| Tool    | Per-hat location                                 | Selected by                                      | Opt out                     |
-| ------- | ------------------------------------------------ | ------------------------------------------------ | --------------------------- |
-| kubectl | `~/.kube/config.<hat>`                           | `KUBECONFIG`                                     | `kube: { isolate: false }`  |
-| AWS CLI | `~/.aws/.hats/<hat>.config`, `<hat>.credentials` | `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` | `aws: { isolate: false }`   |
-| k9s     | `~/.config/k9s/hats/<hat>/`                      | `K9S_CONFIG_DIR`                                 | `k9s: { isolate: false }`   |
-| coder   | `~/.config/coderv2/hats/<hat>/`                  | `CODER_CONFIG_DIR`                               | `coder: { isolate: false }` |
-| SSH     | `~/.ssh/config.d/<hat>.conf`                     | `HATS_HAT`, expanded in `~/.ssh/config`          | n/a                         |
-| git     | `~/.gitconfig.d/<hat>`                           | `include.path` via `GIT_CONFIG_KEY_0`            | n/a                         |
+| Tool         | Per-hat location                                 | Selected by                                      | Opt out                             |
+| ------------ | ------------------------------------------------ | ------------------------------------------------ | ----------------------------------- |
+| kubectl      | `~/.kube/config.<hat>`                           | `KUBECONFIG`                                     | `kube: { isolate: false }`          |
+| AWS CLI      | `~/.aws/.hats/<hat>.config`, `<hat>.credentials` | `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` | `aws: { isolate: false }`           |
+| Terraform    | `~/.terraform.d/.hats/<hat>.tfrc`              | `TF_CLI_CONFIG_FILE`                               | `terraform: { isolate: false }`     |
+| Azure CLI    | `~/.azure/.hats/<hat>/`                          | `AZURE_CONFIG_DIR`                               | `azure: { isolate: false }`         |
+| GitHub CLI   | `~/.config/gh/.hats/<hat>/`                      | `GH_CONFIG_DIR`                                  | `github: { isolate: false }`        |
+| k9s          | `~/.config/k9s/hats/<hat>/`                      | `K9S_CONFIG_DIR`                                 | `k9s: { isolate: false }`           |
+| coder        | `~/.config/coderv2/hats/<hat>/`                  | `CODER_CONFIG_DIR`                               | `coder: { isolate: false }`         |
+| VS Code      | a profile named after the hat                    | `code --profile <hat>`, then VS Code remembers   | the `editor` group                  |
+| SSH          | `~/.ssh/config.d/<hat>.conf`                     | `HATS_HAT`, expanded in `~/.ssh/config`          | n/a                                 |
+| git          | `~/.gitconfig.d/<hat>`                           | `include.path` via `GIT_CONFIG_KEY_0`            | n/a                                 |
 
 #### SSH
 
@@ -415,15 +460,99 @@ sets `CODER_SSH_CONFIG_FILE`, so `coder config-ssh` writes workspace hosts into
 the hat's `~/.ssh/config.d/<hat>.conf` rather than the hats-managed
 `~/.ssh/config`.
 
+#### Terraform
+
+The `terraform` group manages `~/.terraformrc` and `~/.tofurc` with the same
+settings: a provider cache shared by both tools at
+`~/.cache/opentofu/plugin-cache` (created by the `terraform-plugin-cache` hook,
+since neither tool creates it), and Terraform's checkpoint calls switched off.
+Tokens stay out of both files; give a hat `TF_TOKEN_<host>: { secret: <key> }`
+in its `env:` instead.
+
+`TF_CLI_CONFIG_FILE` points each hat at its own `.terraform.d/.hats/<hat>.tfrc`,
+seeded once from the shared `~/.terraformrc` (or `~/.tofurc`, on a machine with
+only that). OpenTofu honours the variable too, so the one file serves both
+tools. Seeding is one-shot: a later change to the managed files does not reach
+a hat that already has its copy. Setting the variable also makes Terraform
+skip the shared `~/.terraform.d` directory, so a hat's `credentials`,
+`credentials_helper`, `plugin_cache_dir` and `provider_installation` settings
+stand alone. Note that `terraform login` always writes its token to the shared
+`~/.terraform.d/credentials.tfrc.json`, which the hat no longer reads; a hat
+that wants HCP tokens per-hat writes a `credentials` block into its own tfrc
+or exports `TF_TOKEN_app_terraform_io`.
+
+#### Azure CLI
+
+`AZURE_CONFIG_DIR` points each hat at its own `~/.azure/.hats/<hat>/` directory,
+isolating the token cache and cloud configuration from `az login` and `az account set`.
+
+#### GitHub CLI
+
+`GH_CONFIG_DIR` points each hat at its own `~/.config/gh/.hats/<hat>/` directory,
+isolating authentication tokens and host configuration from `gh auth login`.
+
+### VS Code profiles
+
+Editor settings are not environment variables, so VS Code is handled with its
+own mechanism: a profile per hat, named after the hat. Each profile has its own
+global `settings.json`, seeded from yours, and shares everything else with the
+default profile, extensions and their state included. Turn this on with the
+`editor` group.
+
+**hats creates and removes the profiles**, because a profile can only be
+registered while VS Code is closed: VS Code keeps its profile list in memory
+and rewrites it whenever anything changes.
+
+- `hats hat create` and `hats apply` register the missing ones. With VS Code
+  open, `create` offers to quit or force stop it, and otherwise leaves the
+  profile for the next `hats apply`. `hats doctor` lists what is outstanding.
+- `hats hat delete` unregisters the profile and moves its directory to
+  `~/.hats/backups/`, once VS Code is stopped. A profile you made by hand with
+  the hat's name is never touched.
+
+**Three things then choose the profile for a folder:**
+
+- VS Code remembers the profile a folder was last opened with, and reopens it
+  that way, whether the profile was chosen by hand or by `code`.
+- In a shell wearing a hat, `code <path>` opens with that hat's profile, which
+  is also how a profile that is still missing gets registered: VS Code is
+  closed at that moment.
+- A folder that belongs to one hat can say so in `.vscode/settings.json`:
+
+  ```json
+  { "hats.hat": "acme" }
+  ```
+
+  The hats extension, installed by `hats apply`, then offers to switch profile
+  whenever that folder is opened under another one. It cannot switch by itself:
+  VS Code's switch command always asks, and offers no API to a profile.
+
+Worth knowing:
+
+- A folder that is already open in a window is only focused, so its profile
+  does not change.
+- Opening a folder from another hat's shell changes the profile VS Code
+  remembers for it.
+- `EDITOR="code --wait"`, run by git, does not go through the shell function.
+- A window takes the environment of the shell that ran `code`, merged over
+  VS Code's own. After a restart or a Dock launch, windows keep their profile
+  but get the login shell's environment, so run `hat <name>` in their
+  terminals.
+- VS Code Insiders, OSS builds and snap or flatpak installs keep their state
+  elsewhere and are not covered.
+
 ### Per-hat files
 
 `hats hat create` creates these files along with the hat, and `hats apply`
 creates any that are missing for existing hats:
 
 - ssh and git: a file containing a comment line
-- AWS and kube: a copy of the shared config file
+- AWS, kube and Terraform: a copy of the shared config file
 - k9s: links to the managed theme
-- coder: an empty directory, mode 0700
+- coder, azure, github: an empty directory, mode 0700
+- VS Code: a profile registered with VS Code, its `settings.json` a copy of
+  your default one, mode 0700 (only with the `editor` group, and only while
+  VS Code is closed)
 
 After creation, hats does not modify these files. `hats hat delete <name>` is
 the only command that removes them, and it moves them to `~/.hats/backups/`
@@ -457,6 +586,8 @@ Common commands:
 | `hats hat create <name>` | Add a hat and create its files, via flags or prompts        |
 | `hats hat delete <name>` | Remove a hat and move its files to backups                  |
 | `hats env <name>`        | Print the shell code a switch would run, without running it |
+| `hats env --here`        | The same for the nearest `.hat` file; used by the `cd` hook |
+| `hats hat vscode-profile <name>` | Say whether VS Code has that hat's profile; used by `code` |
 
 **Dotfiles**
 

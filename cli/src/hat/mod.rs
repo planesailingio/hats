@@ -9,13 +9,18 @@
 //! unset list is the union of every hat's keys, not a list anyone maintains.
 
 pub mod aws;
+pub mod azure;
 pub mod coder;
 pub mod emit;
+pub mod folder;
 pub mod git;
+pub mod github;
 pub mod k9s;
 pub mod kube;
 pub mod scaffold;
 pub mod ssh;
+pub mod terraform;
+pub mod vscode;
 
 use std::path::PathBuf;
 
@@ -46,6 +51,13 @@ pub struct EnvPlan {
     /// This hat's own AWS files, or None when isolation is off.
     pub aws_config: Option<PathBuf>,
     pub aws_credentials: Option<PathBuf>,
+    /// This hat's own Terraform CLI config file, or None when isolation is
+    /// off.
+    pub terraform_config_file: Option<PathBuf>,
+    /// This hat's own Azure config directory, or None when isolation is off.
+    pub azure_config_dir: Option<PathBuf>,
+    /// This hat's own GitHub config directory, or None when isolation is off.
+    pub github_config_dir: Option<PathBuf>,
     /// Terminal tint, or None to leave the background alone.
     pub colour: Option<String>,
     /// Secrets the hat refers to that have no value. Reported to stderr so
@@ -92,6 +104,9 @@ impl EnvPlan {
             coder_config_dir: None,
             aws_config: None,
             aws_credentials: None,
+            terraform_config_file: None,
+            azure_config_dir: None,
+            github_config_dir: None,
             colour: None,
             missing_secrets: Vec::new(),
         };
@@ -143,6 +158,33 @@ impl EnvPlan {
             plan.set
                 .insert("CODER_CONFIG_DIR".into(), d.to_string_lossy().into_owned());
         }
+
+        if p.terraform_isolated() {
+            plan.terraform_config_file = Some(terraform::config_path(home, name));
+        }
+        if let Some(f) = &plan.terraform_config_file {
+            plan.set.insert(
+                "TF_CLI_CONFIG_FILE".into(),
+                f.to_string_lossy().into_owned(),
+            );
+        }
+
+        if p.azure_isolated() {
+            plan.azure_config_dir = Some(azure::config_dir(home, name));
+        }
+        if let Some(d) = &plan.azure_config_dir {
+            plan.set
+                .insert("AZURE_CONFIG_DIR".into(), d.to_string_lossy().into_owned());
+        }
+
+        if p.github_isolated() {
+            plan.github_config_dir = Some(github::config_dir(home, name));
+        }
+        if let Some(d) = &plan.github_config_dir {
+            plan.set
+                .insert("GH_CONFIG_DIR".into(), d.to_string_lossy().into_owned());
+        }
+
         if let Some(url) = &p.coder.url {
             plan.set.insert("CODER_URL".into(), url.clone());
         }

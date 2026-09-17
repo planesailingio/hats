@@ -256,6 +256,7 @@ fn show(app: &App, plan: &Plan, show_secrets: bool) {
     for note in &plan.notes {
         app.ui.warn(note);
     }
+    warn_vscode_pending(app);
 
     if plan.entries.is_empty() && plan.scaffolds.is_empty() && plan.hooks.is_empty() {
         app.ui
@@ -330,9 +331,30 @@ fn show(app: &App, plan: &Plan, show_secrets: bool) {
 
     app.ui.say("");
     app.ui.say(plan.summary.line());
+
     if show_secrets {
         app.ui
             .warn("real secret values were printed above; clear your scrollback");
+    }
+}
+
+/// A running VS Code would overwrite a profile added now, so those hats are
+/// left out of the plan rather than being planned and then quietly skipped.
+fn warn_vscode_pending(app: &App) {
+    let (Ok(cfg), Ok(platform)) = (app.config(), app.platform()) else {
+        return;
+    };
+    let pending = crate::hat::scaffold::vscode_pending(&cfg, &platform.home);
+    if !pending.is_empty() {
+        app.ui.warn(format!(
+            "VS Code is running: no profile for {} yet. Quit VS Code and run `hats apply` \
+             again, or open a folder with `code` from a shell wearing the hat.",
+            pending
+                .iter()
+                .map(|h| format!("`{h}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
 }
 

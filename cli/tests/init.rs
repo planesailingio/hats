@@ -127,6 +127,8 @@ impl Env {
             .env("HOME", &self.user_home)
             // Never inherit the developer's own hat state into a test.
             .env_remove("HATS_HAT")
+            .env_remove("HATS_HAT_FILE")
+            .env_remove("HATS_HAT_PREV")
             .env_remove("HATS_HOME")
             .env_remove("HATS_DEV");
         c
@@ -294,6 +296,144 @@ fn the_reset_list_covers_variables_from_every_hat() {
             "reset list is missing {expected}: {keys:?}"
         );
     }
+}
+
+/// `hats env --here` is what the shell's `cd` hook evals. Walk one shell into
+/// a tree that names a hat, around inside it, and back out.
+#[test]
+fn env_here_follows_the_nearest_dot_hat_file() {
+    let env = Env::new(Some("v0.1.0"));
+    env.init().assert().success();
+
+    // Canonical, as the binary's own `current_dir` reports it.
+    std::fs::create_dir_all(env.user_home.join("work")).unwrap();
+    let tree = env.user_home.join("work").canonicalize().unwrap();
+    std::fs::write(tree.join(".hat"), "# this tree is acme's\nacme\n").unwrap();
+    let sub = tree.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    let file = tree.join(".hat");
+    let here = |dir: &Path, vars: &[(&str, &str)]| {
+        let mut c = env.hats();
+        c.args(["env", "--here", "--quiet"]).current_dir(dir);
+        for (k, v) in vars {
+            c.env(k, v);
+        }
+        let out = c.output().unwrap();
+        assert!(out.status.success());
+        (
+            String::from_utf8(out.stdout).unwrap(),
+            String::from_utf8(out.stderr).unwrap(),
+        )
+    };
+    let file_str = file.to_str().unwrap();
+
+    // Outside every tree there is nothing to say.
+    let (script, _) = here(&env.user_home, &[("HATS_HAT", "normal")]);
+    assert_eq!(script, "");
+
+    // Entering: the folder's hat goes on, and the old one is remembered.
+    let (script, _) = here(&sub, &[("HATS_HAT", "normal")]);
+    assert!(script.contains("export HATS_HAT=acme"), "{script}");
+    assert!(script.contains("export HATS_HAT_PREV=normal"), "{script}");
+    assert!(script.contains("HATS_HAT_FILE="), "{script}");
+    assert!(script.contains(file_str), "{script}");
+
+    // Moving within the tree says nothing, even after `hat normal` by hand.
+    let inside = [
+        ("HATS_HAT", "normal"),
+        ("HATS_HAT_FILE", file_str),
+        ("HATS_HAT_PREV", "normal"),
+    ];
+    let (script, _) = here(&tree, &inside);
+    assert_eq!(script, "", "a manual choice sticks inside the tree");
+
+    // Leaving with the previous hat already on only clears the folder state.
+    let (script, _) = here(&env.user_home, &inside);
+    assert_eq!(script, "unset HATS_HAT_FILE HATS_HAT_PREV 2>/dev/null\n");
+
+    // Leaving while wearing the folder's hat switches back.
+    let wearing = [
+        ("HATS_HAT", "acme"),
+        ("HATS_HAT_FILE", file_str),
+        ("HATS_HAT_PREV", "normal"),
+    ];
+    let (script, _) = here(&env.user_home, &wearing);
+    assert!(script.contains("export HATS_HAT=normal"), "{script}");
+    let unset = script.lines().find(|l| l.starts_with("unset ")).unwrap();
+    assert!(unset.contains("HATS_HAT_FILE") && unset.contains("HATS_HAT_PREV"));
+
+    // A folder that asks for the hat already on moves only the folder state.
+    let (script, _) = here(&sub, &[("HATS_HAT", "acme")]);
+    assert!(!script.contains("export HATS_HAT=acme"), "{script}");
+    assert!(script.contains("export HATS_HAT_PREV=acme"), "{script}");
+
+    // A file naming a hat this machine lacks switches nothing, and says why.
+    std::fs::write(&file, "globex\n").unwrap();
+    let (script, warning) = here(&sub, &[("HATS_HAT", "normal")]);
+    assert_eq!(script, "", "a broken .hat must never half-apply");
+    assert!(warning.contains("globex"), "{warning}");
+}
+
+/// The same walk, through a real zsh running the real integration script: the
+/// `chpwd` hook is the half of the feature the binary cannot test on its own.
+#[test]
+fn the_zsh_cd_hook_switches_hats_as_the_shell_moves() {
+    let Ok(zsh) = which::which("zsh") else {
+        return;
+    };
+    let env = Env::new(Some("v0.1.0"));
+    env.init().assert().success();
+
+    std::fs::create_dir_all(env.user_home.join("work/sub")).unwrap();
+    std::fs::write(env.user_home.join("work/.hat"), "acme\n").unwrap();
+
+    let bin = assert_cmd::cargo::cargo_bin("hats");
+    let path = format!(
+        "{}:{}",
+        bin.parent().unwrap().display(),
+        std::env::var("PATH").unwrap()
+    );
+    let script = r#"
+        eval "$(hats shell-init zsh)"
+        echo "start=$HATS_HAT"
+        cd ~/work/sub;  echo "entered=$HATS_HAT prev=$HATS_HAT_PREV"
+        hat normal >/dev/null
+        cd ~/work;      echo "manual=$HATS_HAT"
+        cd ~;           echo "left=$HATS_HAT file=${HATS_HAT_FILE:-none}"
+        cd ~/work;      echo "again=$HATS_HAT"
+        cd ~;           echo "back=$HATS_HAT"
+    "#;
+    let out = std::process::Command::new(zsh)
+        .args(["-f", "-c", script])
+        .current_dir(&env.user_home)
+        .env("PATH", path)
+        .env("HOME", &env.user_home)
+        .env("HATS_HOME", &env.home)
+        .env("HATS_DEV", "1")
+        .env("NO_COLOR", "1")
+        .env_remove("HATS_HAT")
+        .env_remove("HATS_HAT_FILE")
+        .env_remove("HATS_HAT_PREV")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let stderr = String::from_utf8(out.stderr).unwrap();
+
+    for expected in [
+        "start=normal",
+        "entered=acme prev=normal",
+        "manual=normal",
+        "left=normal file=none",
+        "again=acme",
+        "back=normal",
+    ] {
+        assert!(
+            stdout.lines().any(|l| l == expected),
+            "missing `{expected}`\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        );
+    }
+    // A hat that changed under a `cd` is announced.
+    assert!(stdout.contains("hat: acme"), "{stdout}");
 }
 
 #[test]

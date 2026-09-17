@@ -1,0 +1,43 @@
+{
+  "name": "hats",
+  "displayName": "hats",
+  "description": "Keeps a window's VS Code profile in step with the hat its folder belongs to.",
+  "version": "0.1.0",
+  "publisher": "planesailingio",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "configuration": {
+      "title": "hats",
+      "properties": {
+        "hats.hat": {
+          "type": "string",
+          "scope": "resource",
+          "default": "",
+          "markdownDescription": "The hat this belongs to.\n\nIn a **profile's** settings, written by `hats`, it names the hat the profile is for. In a **folder's** `.vscode/settings.json` it names the hat the folder should be opened with; when the two differ, hats offers to switch profile."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "hats.switchProfile",
+        "title": "Switch Profile...",
+        "category": "hats"
+      },
+      {
+        "command": "hats.setProfileHat",
+        "title": "Set This Profile's Hat...",
+        "category": "hats"
+      }
+    ]
+  }
+}

@@ -106,7 +106,7 @@ exactly as written, so give absolute paths, not ~ or $HOME:
 | gh | `~/.config/gh` | `GH_CONFIG_DIR` (or `GH_TOKEN`, `GH_HOST`) | you, via `env:` | A `gh auth login` per client account. |
 | docker | `~/.docker/config.json` | `DOCKER_CONFIG`, `DOCKER_CONTEXT` | you, via `env:` | A new `DOCKER_CONFIG` also hides `cli-plugins/`: link it in. |
 | az | `~/.azure` | `AZURE_CONFIG_DIR` | you, via `env:` | Logins and subscriptions per hat, as for AWS. |
-| terraform, tofu | `~/.terraformrc` | `TF_CLI_CONFIG_FILE`, `TF_TOKEN_<host>`, `TF_VAR_*` | you, via `env:` | Registry and HCP tokens suit `{ secret: }`. |
+| terraform, tofu | `~/.terraform.d/.hats/<hat>.tfrc`, seeded from the managed `~/.terraformrc` | `TF_CLI_CONFIG_FILE` | hats, on by default | One file for both tools. `TF_TOKEN_<host>` and `TF_VAR_*` go in the hat's `env:`; tokens suit `{ secret: }`. |
 | bw | `~/Library/Application Support/Bitwarden CLI` (macOS) | `BITWARDENCLI_APPDATA_DIR` | you, via `env:` | Only for a separate vault account per client. |
 | npm | `~/.npmrc` | `NPM_CONFIG_USERCONFIG` | you, via `env:` | Private registry tokens per client. |
 | mise, direnv | `mise.toml`, `.envrc` per repo | per directory | the repo | For settings tied to a project rather than a client. |

@@ -6,6 +6,7 @@
 //! config; create and delete change it, along with the per-hat files.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
@@ -16,6 +17,7 @@ use crate::config::Config;
 use crate::config::hat::{HatSpec, IdentitySpec, KubeSpec};
 use crate::error::ConfigError;
 use crate::hat::scaffold::{self, tilde};
+use crate::hat::vscode;
 use crate::model::Filter;
 
 /// Run the subcommand. Returns the process exit code.
@@ -29,7 +31,95 @@ pub fn run(app: &mut App, args: &HatArgs) -> Result<i32> {
         Some(HatCommand::ResetList) => reset_list(app, &cfg).map(|()| 0),
         Some(HatCommand::Create(args)) => create(app, cfg, args).map(|()| 0),
         Some(HatCommand::Delete { name, yes }) => delete(app, cfg, name, *yes),
+        Some(HatCommand::VscodeProfile { name, ensure }) => {
+            vscode_profile(app, &cfg, name, *ensure)
+        }
     }
+}
+
+/// Whether VS Code has a profile for this hat, for the `code` shell function.
+///
+/// It says nothing and fails nothing: the function falls back to plain `code`
+/// on any non-zero exit, so a broken config or an unreadable profile list must
+/// not put an error between the user and their editor.
+fn vscode_profile(app: &App, cfg: &Config, name: &str, ensure: bool) -> Result<i32> {
+    let Ok(platform) = app.platform() else {
+        return Ok(1);
+    };
+    let home = &platform.home;
+
+    // The moment VS Code is certainly closed is just before the shell starts
+    // it, so this is the other chance to register what `hats apply` could not.
+    if ensure && cfg.group_enabled("editor") && !vscode::running(home) {
+        for hat in cfg.hat_names() {
+            let _ = vscode::register(home, &hat);
+        }
+    }
+    Ok(i32::from(!vscode::has_profile(home, name).unwrap_or(false)))
+}
+
+/// Offer to stop VS Code so hats can change its profile list, explaining why
+/// that is needed. Returns whether VS Code is now stopped.
+///
+/// Answering is the only way this stops VS Code: with no one to ask, it
+/// reports that VS Code is still running and the caller waits or stops.
+fn stop_vscode(app: &mut App, home: &Path, purpose: &str, allow_later: bool) -> Result<bool> {
+    if !vscode::running(home) {
+        return Ok(true);
+    }
+    app.ui.warn(format!(
+        "VS Code is running. It keeps its list of profiles in memory and rewrites its state \
+         file whenever anything changes, so a profile hats added now would be overwritten. \
+         VS Code has to be stopped to {purpose}."
+    ));
+    if !app.ui.prompter.is_interactive() {
+        return Ok(false);
+    }
+
+    const QUIT: &str = "Quit VS Code (asks about unsaved files)";
+    const FORCE: &str = "Force stop VS Code";
+    const LATER: &str = "Leave VS Code alone";
+    let mut options = vec![QUIT, FORCE];
+    if allow_later {
+        options.push(LATER);
+    }
+
+    // A prompt that cannot be answered (no terminal, or cancelled) means
+    // VS Code stays up, which every caller already handles.
+    let Ok(choice) = app
+        .ui
+        .prompter
+        .select("hat.vscode.stop", "VS Code is running:", &options)
+    else {
+        return Ok(false);
+    };
+    let stopped = match choice.as_str() {
+        QUIT => vscode::quit(home, Duration::from_secs(60))?,
+        FORCE => {
+            app.ui.warn(
+                "Force stopping ends every integrated terminal and whatever is running in \
+                 them. Unsaved editors are backed up a second or two after each change, so \
+                 they come back when VS Code restarts, but the last moments of typing and \
+                 the window layout may be lost.",
+            );
+            if !app
+                .ui
+                .prompter
+                .confirm("hat.vscode.force", "Force stop VS Code now?", false)
+                .unwrap_or(false)
+            {
+                return Ok(false);
+            }
+            vscode::force_stop(home, Duration::from_secs(10))?
+        }
+        _ => return Ok(false),
+    };
+
+    if !stopped {
+        app.ui
+            .warn("VS Code is still running (a dialog may be waiting for an answer).");
+    }
+    Ok(stopped)
 }
 
 fn list(app: &App, cfg: &Config, plain: bool) -> Result<()> {
@@ -207,6 +297,25 @@ fn create(app: &mut App, mut cfg: Config, args: &HatCreateArgs) -> Result<()> {
         }
     }
 
+    // The VS Code profile is the one thing a running editor can undo, so it is
+    // offered separately rather than scaffolded above.
+    if scaffold::vscode_pending(&cfg, home)
+        .iter()
+        .any(|p| p == name)
+    {
+        let purpose = format!("give `{name}` its own VS Code profile");
+        if stop_vscode(app, home, &purpose, true)? && vscode::register(home, name)? {
+            app.ui.ok(format!("created VS Code profile `{name}`"));
+            app.ui
+                .say("Start VS Code again when you are ready; it restores your windows.");
+        } else {
+            app.ui.warn(format!(
+                "no VS Code profile for `{name}` yet: run `hats apply` with VS Code closed, \
+                 or open a folder with `code` from a shell wearing it."
+            ));
+        }
+    }
+
     app.ui.say("");
     app.ui.say(format!("Put it on with `hat {name}`."));
     Ok(())
@@ -354,16 +463,33 @@ fn delete(app: &mut App, mut cfg: Config, name: &str, yes: bool) -> Result<i32> 
         .filter(|p| p.symlink_metadata().is_ok())
         .collect();
 
+    let profile = vscode::owns_profile(home, name).unwrap_or(false);
+
     app.ui.say(format!(
         "Deleting hat `{name}` removes it from {} and moves its files to {}:",
         tilde(&app.paths.config, home),
         tilde(&app.paths.backups, home)
     ));
-    if files.is_empty() {
+    if files.is_empty() && !profile {
         app.ui.say("  (it has no files)");
     }
     for f in &files {
         app.ui.say(format!("  - {}", tilde(f, home)));
+    }
+    if profile {
+        app.ui.say(format!(
+            "  - its VS Code profile, `{name}`, is unregistered"
+        ));
+    }
+
+    // Asked before the delete confirm: nothing has been touched yet, so
+    // declining here leaves the hat exactly as it was. `--yes` is for scripts,
+    // which must never have VS Code stopped underneath them.
+    if profile && vscode::running(home) {
+        let purpose = format!("remove the `{name}` profile");
+        if yes || !stop_vscode(app, home, &purpose, false)? {
+            bail!("quit VS Code first: hat `{name}` has a VS Code profile. Nothing deleted.");
+        }
     }
 
     if !yes {
@@ -379,6 +505,13 @@ fn delete(app: &mut App, mut cfg: Config, name: &str, yes: bool) -> Result<i32> 
     }
 
     let backup = backup_dir(app);
+    // Before the files: a profile whose directory has moved would have VS Code
+    // rebuild an empty one, while an entry left after a failed move is found
+    // and removed by running the delete again.
+    if profile {
+        vscode::unregister(home, name)?;
+        app.ui.ok(format!("unregistered VS Code profile `{name}`"));
+    }
     // Files before the config: if one cannot be moved, the hat is still
     // there and running the delete again picks up where this one stopped.
     for f in &files {

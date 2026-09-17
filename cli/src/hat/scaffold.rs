@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use super::{aws, coder, git, k9s, kube, ssh};
+use super::{aws, azure, coder, git, github, k9s, kube, ssh, terraform, vscode};
 use crate::config::Config;
 use crate::model::ManagedFile;
 
@@ -35,6 +35,15 @@ pub enum Kind {
     K9s(k9s::Link),
     /// An empty owner-only directory for this hat's coder login.
     Coder(String),
+    /// An owner-only copy of the shared Terraform CLI config for this hat.
+    Terraform(String),
+    /// An empty owner-only directory for this hat's Azure config.
+    Azure(String),
+    /// An empty owner-only directory for this hat's GitHub config.
+    Github(String),
+    /// A VS Code profile for this hat, registered with VS Code and seeded
+    /// from the default settings. Only when VS Code is not running.
+    VscodeProfile(String),
 }
 
 /// One path a hat is missing.
@@ -132,7 +141,70 @@ fn per_hat(cfg: &Config, home: &Path, managed: &[ManagedFile], name: &str) -> Ve
             Kind::Coder(name.to_string()),
         ));
     }
+    if hat.terraform_isolated() {
+        out.push(make(
+            home,
+            terraform::config_path(home, name),
+            seeded(home, terraform::shared(home)),
+            Kind::Terraform(name.to_string()),
+        ));
+    }
+    if hat.azure_isolated() {
+        out.push(make(
+            home,
+            azure::config_dir(home, name),
+            "empty, owner-only".into(),
+            Kind::Azure(name.to_string()),
+        ));
+    }
+    if hat.github_isolated() {
+        out.push(make(
+            home,
+            github::config_dir(home, name),
+            "empty, owner-only".into(),
+            Kind::Github(name.to_string()),
+        ));
+    }
+    if wants_vscode_profile(cfg, home, name) && !vscode::running(home) {
+        out.push(make(
+            home,
+            vscode::profile_dir(home, name),
+            format!(
+                "VS Code profile `{name}`, {}",
+                seeded(home, default_vscode_settings(home))
+            ),
+            Kind::VscodeProfile(name.to_string()),
+        ));
+    }
     out
+}
+
+/// Whether this hat is missing the VS Code profile hats would give it.
+///
+/// A profile the user made by hand with the hat's name counts as the hat's,
+/// so hats leaves it alone. An unreadable profile list counts as "has one":
+/// hats does not write over state it cannot read.
+fn wants_vscode_profile(cfg: &Config, home: &Path, name: &str) -> bool {
+    cfg.group_enabled("editor")
+        && vscode::installed(home)
+        && !vscode::has_profile(home, name).unwrap_or(true)
+}
+
+/// The hats whose VS Code profile is waiting for VS Code to be closed.
+pub fn vscode_pending(cfg: &Config, home: &Path) -> Vec<String> {
+    if !vscode::running(home) {
+        return Vec::new();
+    }
+    cfg.hat_names()
+        .into_iter()
+        .filter(|name| wants_vscode_profile(cfg, home, name))
+        .collect()
+}
+
+/// The settings a hat's profile is seeded from, if VS Code has any.
+fn default_vscode_settings(home: &Path) -> Option<PathBuf> {
+    let path = vscode::user_dir(home).join("settings.json");
+    path.is_file().then_some(path)
 }
 
 /// The per-hat files are only read through the managed skeleton's Include,
@@ -182,6 +254,12 @@ pub fn create(s: &Scaffold, home: &Path) -> Result<bool> {
         Kind::Kube(hat) => kube::isolate(home, hat).map(|_| true),
         Kind::K9s(link) => k9s::link_once(link),
         Kind::Coder(hat) => coder::isolate(home, hat).map(|_| true),
+        Kind::Terraform(hat) => terraform::isolate(home, hat).map(|_| true),
+        Kind::Azure(hat) => azure::isolate(home, hat).map(|_| true),
+        Kind::Github(hat) => github::isolate(home, hat).map(|_| true),
+        // False when VS Code started since the plan was made, like any other
+        // scaffold whose target appeared in the meantime.
+        Kind::VscodeProfile(hat) => vscode::register(home, hat),
     }
 }
 
@@ -201,6 +279,10 @@ pub fn owned_paths(home: &Path, name: &str) -> Vec<PathBuf> {
         kube::config_path(home, name),
         k9s::config_dir(home, name),
         coder::config_dir(home, name),
+        terraform::config_path(home, name),
+        azure::config_dir(home, name),
+        github::config_dir(home, name),
+        vscode::profile_dir(home, name),
     ];
     out.sort();
     out
@@ -370,6 +452,12 @@ mod tests {
         }
     }
 
+    /// The same hats, with the editor group on and VS Code set up.
+    fn with_editor(home: &Path) -> Config {
+        std::fs::create_dir_all(vscode::user_dir(home)).unwrap();
+        config(&format!("groups: {{ editor: true }}\n{PROFILES}"))
+    }
+
     fn displays(home: &Path, files: &[ManagedFile]) -> Vec<String> {
         wanted(&config(PROFILES), home, files)
             .into_iter()
@@ -411,6 +499,82 @@ mod tests {
         let mut sorted = got.clone();
         sorted.sort();
         assert_eq!(got, sorted, "plans must be stable");
+    }
+
+    #[test]
+    fn a_vscode_profile_is_wanted_only_with_the_editor_group_and_vscode_present() {
+        let home = tempfile::tempdir().unwrap();
+        // The editor group is off in every other test, so no hat asks for one.
+        assert!(
+            !displays(home.path(), &[])
+                .iter()
+                .any(|d| d.contains("profiles"))
+        );
+
+        // On, but VS Code has never run on this machine.
+        let no_vscode = config(&format!("groups: {{ editor: true }}\n{PROFILES}"));
+        assert!(
+            !wanted(&no_vscode, home.path(), &[])
+                .iter()
+                .any(|s| matches!(s.kind, Kind::VscodeProfile(_)))
+        );
+
+        let cfg = with_editor(home.path());
+        let profiles: Vec<String> = wanted(&cfg, home.path(), &[])
+            .into_iter()
+            .filter(|s| matches!(s.kind, Kind::VscodeProfile(_)))
+            .map(|s| s.display)
+            .collect();
+        assert_eq!(profiles.len(), 3, "one per hat: {profiles:?}");
+        assert!(profiles.iter().any(|d| d.ends_with("profiles/hats-acme")));
+    }
+
+    #[test]
+    fn a_hat_that_already_has_a_profile_is_left_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let cfg = with_editor(home.path());
+        assert!(
+            create(
+                &wanted(&cfg, home.path(), &[])
+                    .into_iter()
+                    .find(|s| s.kind == Kind::VscodeProfile("acme".into()))
+                    .unwrap(),
+                home.path()
+            )
+            .unwrap()
+        );
+
+        let again: Vec<String> = wanted(&cfg, home.path(), &[])
+            .into_iter()
+            .filter(|s| s.kind == Kind::VscodeProfile("acme".into()))
+            .map(|s| s.display)
+            .collect();
+        assert!(again.is_empty(), "{again:?}");
+        assert!(vscode::has_profile(home.path(), "acme").unwrap());
+    }
+
+    #[test]
+    fn a_running_vscode_defers_its_profiles_rather_than_planning_them() {
+        let home = tempfile::tempdir().unwrap();
+        let cfg = with_editor(home.path());
+        // VS Code's lock file, naming this test process: certainly alive.
+        let lock = vscode::user_dir(home.path())
+            .parent()
+            .unwrap()
+            .join("code.lock");
+        std::fs::write(&lock, std::process::id().to_string()).unwrap();
+
+        assert!(
+            !wanted(&cfg, home.path(), &[])
+                .iter()
+                .any(|s| matches!(s.kind, Kind::VscodeProfile(_)))
+        );
+        let mut pending = vscode_pending(&cfg, home.path());
+        pending.sort();
+        assert_eq!(pending, vec!["acme", "normal", "plain"]);
+
+        std::fs::remove_file(&lock).unwrap();
+        assert!(vscode_pending(&cfg, home.path()).is_empty());
     }
 
     #[test]

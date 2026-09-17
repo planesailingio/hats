@@ -175,6 +175,14 @@ pub enum HatCommand {
         #[arg(long, short = 'y')]
         yes: bool,
     },
+    /// Report whether VS Code has a profile for this hat, for the `code`
+    /// shell function. Exit 0 if it has, 1 if not.
+    VscodeProfile {
+        name: String,
+        /// First register any hat's missing profile, if VS Code is closed
+        #[arg(long)]
+        ensure: bool,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -414,6 +422,12 @@ pub struct EnvArgs {
     /// Hat to switch to (default: the configured default hat)
     pub hat: Option<String>,
 
+    /// Choose the hat from the nearest `.hat` file at or above the current
+    /// directory, and print nothing when that changes nothing. Used by the
+    /// shell's `cd` hook.
+    #[arg(long, conflicts_with = "hat")]
+    pub here: bool,
+
     /// Do not touch the kubeconfig
     #[arg(long)]
     pub no_kube: bool,
@@ -529,6 +543,24 @@ mod tests {
             ])
             .is_err(),
             "--inherits and --no-inherit contradict each other"
+        );
+    }
+
+    #[test]
+    fn env_here_takes_no_hat_name() {
+        let cli = Cli::try_parse_from(["hats", "env", "--here", "--quiet"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Env(EnvArgs {
+                here: true,
+                hat: None,
+                ..
+            })
+        ));
+
+        assert!(
+            Cli::try_parse_from(["hats", "env", "acme", "--here"]).is_err(),
+            "--here chooses the hat, so naming one contradicts it"
         );
     }
 

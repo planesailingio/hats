@@ -14,7 +14,8 @@ use minijinja::{Environment, context};
 use crate::app::App;
 use crate::cli::{EnvArgs, ShellInitArgs};
 use crate::hat::emit::{ShellEmitter, Zsh, sh_quote};
-use crate::hat::{EnvOptions, EnvPlan, aws, coder, k9s, kube};
+use crate::hat::folder::{self, Step};
+use crate::hat::{EnvOptions, EnvPlan, aws, azure, coder, github, k9s, kube, terraform};
 use crate::secrets::store::Secrets;
 
 /// The integration script, compiled into the binary so a mid-upgrade repo
@@ -38,6 +39,18 @@ pub fn env(app: &mut App, args: &EnvArgs) -> Result<()> {
 }
 
 fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
+    // `--here` runs on every `cd`, and on most of them nothing changes, so
+    // settle that before paying for the configuration.
+    let shell = folder::Shell::from_env();
+    let step = if args.here {
+        match folder::decide(&std::env::current_dir()?, &shell)? {
+            Step::Nothing => return Ok(String::new()),
+            step => Some(step),
+        }
+    } else {
+        None
+    };
+
     let cfg = app.config()?;
     let secrets = Secrets::load(&app.paths.secrets)?;
     let platform = app.platform()?;
@@ -48,12 +61,46 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
         no_colour: args.no_colour,
         reset_only: args.reset,
     };
-    let name = match &args.hat {
-        Some(n) => n.clone(),
-        None => cfg.local.default_hat(),
+    let name = match (&step, &args.hat) {
+        (Some(Step::Enter { hat, .. }), _) => hat.clone(),
+        // The hat to go back to may have been deleted since.
+        (Some(Step::Leave { prev }), _) => prev
+            .clone()
+            .filter(|p| cfg.hats().contains_key(p))
+            .unwrap_or_else(|| cfg.local.default_hat()),
+        (_, Some(n)) => n.clone(),
+        (_, None) => cfg.local.default_hat(),
     };
 
+    // A folder that asks for the hat already on changes only the folder state.
+    if let Some(step) = &step
+        && shell.hat.as_deref() == Some(name.as_str())
+    {
+        return Ok(folder_state_only(step));
+    }
+
     let mut plan = EnvPlan::build(&cfg, &name, &secrets, &platform.home, opts)?;
+
+    match &step {
+        Some(Step::Enter { file, prev, .. }) => {
+            // At the front: HATS_HAT stays the last thing a switch sets.
+            if let Some(prev) = prev {
+                plan.set
+                    .shift_insert(0, folder::PREV_VAR.into(), prev.clone());
+            }
+            plan.set.shift_insert(
+                0,
+                folder::FILE_VAR.into(),
+                file.to_string_lossy().into_owned(),
+            );
+        }
+        Some(Step::Leave { .. }) => {
+            plan.unset
+                .extend([folder::FILE_VAR.into(), folder::PREV_VAR.into()]);
+            plan.unset.sort();
+        }
+        _ => {}
+    }
 
     // Seed the per-hat kubeconfig and select its context here, in the
     // process, rather than emitting shell to do it. Both act on files, not on
@@ -130,6 +177,51 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
         }
     }
 
+    // The per-hat config directories must exist before az or gh write their
+    // tokens into them, or the first login lands in a missing path.
+    if plan.terraform_config_file.is_some() {
+        match terraform::isolate(&platform.home, &name) {
+            Ok(file) => {
+                plan.set.insert(
+                    "TF_CLI_CONFIG_FILE".into(),
+                    file.to_string_lossy().into_owned(),
+                );
+            }
+            Err(e) => {
+                app.ui.detail(format!("terraform isolation skipped: {e:#}"));
+                plan.set.shift_remove("TF_CLI_CONFIG_FILE");
+            }
+        }
+    }
+
+    if plan.azure_config_dir.is_some() {
+        match azure::isolate(&platform.home, &name) {
+            Ok(dir) => {
+                plan.set.insert(
+                    "AZURE_CONFIG_DIR".into(),
+                    dir.to_string_lossy().into_owned(),
+                );
+            }
+            Err(e) => {
+                app.ui.detail(format!("azure isolation skipped: {e:#}"));
+                plan.set.shift_remove("AZURE_CONFIG_DIR");
+            }
+        }
+    }
+
+    if plan.github_config_dir.is_some() {
+        match github::isolate(&platform.home, &name) {
+            Ok(dir) => {
+                plan.set
+                    .insert("GH_CONFIG_DIR".into(), dir.to_string_lossy().into_owned());
+            }
+            Err(e) => {
+                app.ui.detail(format!("github isolation skipped: {e:#}"));
+                plan.set.shift_remove("GH_CONFIG_DIR");
+            }
+        }
+    }
+
     if !plan.missing_secrets.is_empty() && !args.quiet {
         app.ui.warn(format!(
             "hat `{name}` refers to {} unfetched secret{}: {}. Run `hats secrets fetch`.",
@@ -146,16 +238,40 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
     Ok(Zsh.emit(&plan))
 }
 
+/// The script for a `--here` step that keeps the hat and moves only the
+/// folder state.
+fn folder_state_only(step: &Step) -> String {
+    match step {
+        Step::Enter { file, prev, .. } => {
+            let mut out = format!(
+                "export {}={}\n",
+                folder::FILE_VAR,
+                sh_quote(&file.to_string_lossy())
+            );
+            if let Some(prev) = prev {
+                out.push_str(&format!("export {}={}\n", folder::PREV_VAR, sh_quote(prev)));
+            }
+            out
+        }
+        Step::Leave { .. } => format!(
+            "unset {} {} 2>/dev/null\n",
+            folder::FILE_VAR,
+            folder::PREV_VAR
+        ),
+        Step::Nothing => String::new(),
+    }
+}
+
 pub fn shell_init(app: &mut App, args: &ShellInitArgs) -> Result<()> {
     // shell-init must work before `hats init` has run, so a missing config is
     // not fatal: emit the functions with no baseline hat.
-    let (default_hat, repo_dir) = match app.config() {
-        Ok(cfg) => (
-            Some(cfg.local.default_hat()),
-            app.paths.repo.to_string_lossy().into_owned(),
-        ),
-        Err(_) => (None, app.paths.repo.to_string_lossy().into_owned()),
+    let (default_hat, vscode_profiles) = match app.config() {
+        // The `code` function is only worth defining where hats manages the
+        // editor, and it costs a `hats` call per `code` where it is defined.
+        Ok(cfg) => (Some(cfg.local.default_hat()), cfg.group_enabled("editor")),
+        Err(_) => (None, false),
     };
+    let repo_dir = app.paths.repo.to_string_lossy().into_owned();
 
     if args.shell != "zsh" {
         anyhow::bail!(
@@ -170,6 +286,7 @@ pub fn shell_init(app: &mut App, args: &ShellInitArgs) -> Result<()> {
     let rendered = jinja.get_template("init")?.render(context! {
         default_hat => default_hat,
         repo_dir => repo_dir,
+        vscode_profiles => vscode_profiles,
     })?;
 
     print!("{rendered}");
@@ -183,6 +300,10 @@ mod tests {
     /// Render the integration script the way `shell-init` does, without needing
     /// a configured machine.
     fn render(default_hat: Option<&str>) -> String {
+        render_with(default_hat, true)
+    }
+
+    fn render_with(default_hat: Option<&str>, vscode_profiles: bool) -> String {
         let mut jinja = Environment::new();
         jinja.add_filter("sh_quote", |v: String| sh_quote(&v));
         jinja.add_template("init", ZSH_INIT).unwrap();
@@ -192,6 +313,7 @@ mod tests {
             .render(context! {
                 default_hat => default_hat,
                 repo_dir => "/home/t/.hats/repo",
+                vscode_profiles => vscode_profiles,
             })
             .unwrap()
     }
@@ -217,12 +339,29 @@ mod tests {
     #[test]
     fn the_integration_script_is_valid_zsh_in_every_variant() {
         for profile in [Some("normal"), None] {
-            let script = render(profile);
-            assert!(
-                parses_as_zsh(&script),
-                "invalid zsh for {profile:?}:\n{script}"
-            );
+            for vscode in [true, false] {
+                let script = render_with(profile, vscode);
+                assert!(
+                    parses_as_zsh(&script),
+                    "invalid zsh for {profile:?}, vscode {vscode}:\n{script}"
+                );
+            }
         }
+    }
+
+    #[test]
+    fn the_code_function_is_defined_only_where_hats_manages_the_editor() {
+        let script = render_with(Some("normal"), true);
+        assert!(script.contains("code() {"), "{script}");
+        assert!(
+            script.contains("hats hat vscode-profile --ensure"),
+            "{script}"
+        );
+        // A profile hats does not know about must not be invented by `code`.
+        assert!(script.contains("command code \"$@\""), "{script}");
+
+        let without = render_with(Some("normal"), false);
+        assert!(!without.contains("code() {"), "{without}");
     }
 
     #[test]
@@ -239,6 +378,21 @@ mod tests {
         assert!(script.contains("hats env normal --quiet"));
         assert!(script.contains("2>/dev/null"));
         assert!(script.contains("|| true"), "shell startup must never fail");
+    }
+
+    #[test]
+    fn the_cd_hook_follows_dot_hat_files_and_cannot_break_a_shell() {
+        let script = render(Some("normal"));
+        assert!(script.contains("add-zsh-hook chpwd _hats_here"), "{script}");
+        assert!(
+            script.contains("script=$(command hats env --here --quiet) || return 0"),
+            "capture first, and a failure must not fail the cd:\n{script}"
+        );
+        // A terminal opened inside a tree wears its hat from the start, quietly.
+        assert!(script.contains("_hats_here quiet 2>/dev/null"), "{script}");
+
+        // An unconfigured machine must not pay for a `hats` call on every cd.
+        assert!(!render(None).contains("_hats_here"));
     }
 
     #[test]
