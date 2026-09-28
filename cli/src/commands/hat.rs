@@ -17,8 +17,8 @@ use crate::config::Config;
 use crate::config::hat::{HatSpec, IdentitySpec, KubeSpec};
 use crate::error::ConfigError;
 use crate::hat::scaffold::{self, tilde};
-use crate::hat::vscode;
-use crate::model::Filter;
+use crate::hat::{skeleton, vscode};
+use crate::secrets::store::Secrets;
 
 /// Run the subcommand. Returns the process exit code.
 pub fn run(app: &mut App, args: &HatArgs) -> Result<i32> {
@@ -29,6 +29,7 @@ pub fn run(app: &mut App, args: &HatArgs) -> Result<i32> {
         Some(HatCommand::Show { name, json }) => show(app, &cfg, name, *json).map(|()| 0),
         Some(HatCommand::Current { summary }) => current(app, &cfg, *summary).map(|()| 0),
         Some(HatCommand::ResetList) => reset_list(app, &cfg).map(|()| 0),
+        Some(HatCommand::Sync) => sync(app, &cfg).map(|()| 0),
         Some(HatCommand::Create(args)) => create(app, cfg, args).map(|()| 0),
         Some(HatCommand::Delete { name, yes }) => delete(app, cfg, name, *yes),
         Some(HatCommand::VscodeProfile { name, ensure }) => {
@@ -49,8 +50,9 @@ fn vscode_profile(app: &App, cfg: &Config, name: &str, ensure: bool) -> Result<i
     let home = &platform.home;
 
     // The moment VS Code is certainly closed is just before the shell starts
-    // it, so this is the other chance to register what `hats apply` could not.
-    if ensure && cfg.group_enabled("editor") && !vscode::running(home) {
+    // it, so this is the other chance to register what `hats hat sync` could
+    // not.
+    if ensure && cfg.vscode_enabled() && !vscode::running(home) {
         for hat in cfg.hat_names() {
             let _ = vscode::register(home, &hat);
         }
@@ -263,7 +265,56 @@ fn reset_list(app: &App, cfg: &Config) -> Result<()> {
     Ok(())
 }
 
-/// Add a hat to the config, then give it the per-hat files an apply would.
+/// Create everything hats scaffolds and does not yet exist: the base
+/// skeletons, every hat's per-tool files, and VS Code profiles.
+pub fn sync(app: &mut App, cfg: &Config) -> Result<()> {
+    let platform = app.platform()?;
+    let home = platform.home.clone();
+
+    // The signing key seeds the ~/.gitconfig scaffold; a secret-shaped one
+    // needs the store, and renders absent rather than empty when unfetched.
+    let secrets = Secrets::load(&app.paths.secrets)?;
+    let signing_key = cfg
+        .local
+        .identity
+        .as_ref()
+        .and_then(|i| i.signing_key.as_ref())
+        .map(|v| match v {
+            crate::config::hat::EnvValue::Literal(s) => s.clone(),
+            crate::config::hat::EnvValue::Secret { secret } => secrets.value_or_empty(secret),
+        })
+        .filter(|s| !s.is_empty());
+
+    let mut created = 0;
+    let base = skeleton::wanted(cfg, &platform, signing_key.as_deref());
+    let per_hat = scaffold::wanted(cfg, &home);
+    for s in base.iter().chain(per_hat.iter()) {
+        if scaffold::create(s, &home)? {
+            created += 1;
+            app.ui.ok(format!("created {}  ({})", s.display, s.how));
+        }
+    }
+    if created == 0 {
+        app.ui.say("Everything is already in place.");
+    }
+
+    let pending = scaffold::vscode_pending(cfg, &home);
+    if !pending.is_empty() {
+        app.ui.warn(format!(
+            "VS Code is running: no profile for {} yet. Quit VS Code and run \
+             `hats hat sync` again, or open a folder with `code` from a shell \
+             wearing the hat.",
+            pending
+                .iter()
+                .map(|h| format!("`{h}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    Ok(())
+}
+
+/// Add a hat to the config, then give it the per-hat files a sync would.
 fn create(app: &mut App, mut cfg: Config, args: &HatCreateArgs) -> Result<()> {
     let name = args.name.trim();
     scaffold::check_name(name)?;
@@ -289,9 +340,7 @@ fn create(app: &mut App, mut cfg: Config, args: &HatCreateArgs) -> Result<()> {
         tilde(&app.paths.config, home)
     ));
 
-    let files_dir = app.paths.repo.join(crate::config::FILES_DIR);
-    let managed = crate::model::expand(&cfg, &files_dir, &platform, &Filter::default())?;
-    for s in scaffold::for_hat(&cfg, home, &managed, name) {
+    for s in scaffold::for_hat(&cfg, home, name) {
         if scaffold::create(&s, home)? {
             app.ui.ok(format!("created {}  ({})", s.display, s.how));
         }
@@ -310,8 +359,8 @@ fn create(app: &mut App, mut cfg: Config, args: &HatCreateArgs) -> Result<()> {
                 .say("Start VS Code again when you are ready; it restores your windows.");
         } else {
             app.ui.warn(format!(
-                "no VS Code profile for `{name}` yet: run `hats apply` with VS Code closed, \
-                 or open a folder with `code` from a shell wearing it."
+                "no VS Code profile for `{name}` yet: run `hats hat sync` with VS Code \
+                 closed, or open a folder with `code` from a shell wearing it."
             ));
         }
     }
@@ -536,7 +585,7 @@ fn delete(app: &mut App, mut cfg: Config, name: &str, yes: bool) -> Result<i32> 
     Ok(0)
 }
 
-/// One backup directory per command, named as `hats apply` names its own.
+/// One backup directory per command, timestamped like a bosun backup.
 fn backup_dir(app: &App) -> PathBuf {
     app.paths
         .backups

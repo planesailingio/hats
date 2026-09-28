@@ -5,11 +5,8 @@ pub mod doctor;
 pub mod env;
 pub mod hat;
 pub mod init;
-pub mod plan;
 pub mod secrets;
 pub mod selftest;
-pub mod tools;
-pub mod update;
 pub mod version;
 
 use anyhow::Result;
@@ -25,10 +22,6 @@ pub fn dispatch(app: &mut App, command: &Command) -> Result<i32> {
             init::run(app, args)?;
             Ok(0)
         }
-        Command::Update(args) => match update::run(app, args)? {
-            Some(update::CheckExit(code)) => Ok(code),
-            None => Ok(0),
-        },
         Command::Version(args) => {
             version::run(app, args)?;
             Ok(0)
@@ -38,13 +31,6 @@ pub fn dispatch(app: &mut App, command: &Command) -> Result<i32> {
             Ok(0)
         }
         Command::Hat(args) => hat::run(app, args),
-        Command::Plan(args) => plan::plan(app, args),
-        Command::Apply(args) => plan::apply(app, args),
-        Command::Diff(args) => plan::diff(app, args),
-        Command::Render(args) => plan::render(app, args),
-        Command::Brew(args) => tools::brew(app, args),
-        Command::Hooks(args) => tools::hooks(app, args),
-        Command::Lint(args) => tools::lint(app, args),
         Command::Secrets(args) => secrets::run(app, args),
         Command::Test(args) => selftest::run(app, args),
         Command::Env(args) => {

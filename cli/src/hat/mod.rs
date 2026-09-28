@@ -18,6 +18,7 @@ pub mod github;
 pub mod k9s;
 pub mod kube;
 pub mod scaffold;
+pub mod skeleton;
 pub mod ssh;
 pub mod terraform;
 pub mod vscode;
@@ -191,7 +192,7 @@ impl EnvPlan {
         // `coder config-ssh` writes to ~/.ssh/config unless told otherwise, and
         // that file is hats'. Point it at the hat's own file, which the skeleton
         // includes first, so workspace hosts resolve under this hat alone.
-        if cfg.group_enabled("ssh") {
+        if cfg.ssh_enabled() {
             plan.set.insert(
                 "CODER_SSH_CONFIG_FILE".into(),
                 ssh::config_path(home, name).to_string_lossy().into_owned(),
@@ -277,7 +278,6 @@ pub(crate) mod testkit {
 
     pub fn config(local_yaml: &str) -> Config {
         Config {
-            repo: serde_yaml_ng::from_str("groups: {}\n").unwrap(),
             local: serde_yaml_ng::from_str::<LocalConfig>(local_yaml).unwrap(),
         }
     }
@@ -397,11 +397,15 @@ mod tests {
     }
 
     #[test]
-    fn coder_config_ssh_writes_to_the_hats_own_file_only_when_hats_manages_ssh() {
+    fn coder_config_ssh_writes_to_the_hats_own_file_only_with_the_ssh_feature() {
+        // On by default: ssh is a feature this machine has unless turned off.
         let p = plan("acme", EnvOptions::default());
-        assert!(!p.set.contains_key("CODER_SSH_CONFIG_FILE"));
+        assert_eq!(
+            p.set["CODER_SSH_CONFIG_FILE"],
+            "/home/t/.ssh/config.d/acme.conf"
+        );
 
-        let cfg = config(&format!("groups: {{ ssh: true }}\n{PROFILES}"));
+        let cfg = config(&format!("features: {{ ssh: false }}\n{PROFILES}"));
         let p = EnvPlan::build(
             &cfg,
             "acme",
@@ -410,10 +414,7 @@ mod tests {
             EnvOptions::default(),
         )
         .unwrap();
-        assert_eq!(
-            p.set["CODER_SSH_CONFIG_FILE"],
-            "/home/t/.ssh/config.d/acme.conf"
-        );
+        assert!(!p.set.contains_key("CODER_SSH_CONFIG_FILE"));
     }
 
     #[test]

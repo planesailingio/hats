@@ -80,12 +80,12 @@ impl BitwardenProvider {
         let settings = ClientSettings {
             identity_url: self.identity_url(),
             api_url: self.api_url(),
-            user_agent: format!("hats/{}", crate::repo::BINARY_VERSION),
+            user_agent: format!("hats/{}", crate::commands::version::BINARY_VERSION),
             device_type: DeviceType::SDK,
             // A stable per-machine identifier keeps the server from recording a
             // new device on every fetch.
             device_identifier: Some(device_identifier()),
-            bitwarden_client_version: Some(crate::repo::BINARY_VERSION.to_string()),
+            bitwarden_client_version: Some(crate::commands::version::BINARY_VERSION.to_string()),
             bitwarden_package_type: None,
         };
         let client = Client::new(Some(settings));
@@ -129,7 +129,7 @@ fn device_identifier() -> String {
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "hats".into());
     // A UUID is expected; derive one deterministically from the hostname.
-    let digest = crate::engine::state::hash(host.as_bytes());
+    let digest = sha256_hex(host.as_bytes());
     format!(
         "{}-{}-{}-{}-{}",
         &digest[0..8],
@@ -265,6 +265,12 @@ fn discover(
     }
 
     Ok(out)
+}
+
+/// Lowercase hex SHA-256, for the deterministic device id above.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(bytes))
 }
 
 #[cfg(test)]

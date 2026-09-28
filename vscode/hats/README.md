@@ -12,6 +12,9 @@ so this extension only has to notice when the two disagree.
 - Shows the window's hat in the status bar, highlighted when it does not match
   the folder's.
 - Offers to switch profile when a folder asks for a different hat.
+- Warns whenever a hat is detected (a `.hat` file in the folder, a `hats.hat`
+  setting, or an active hat in the environment), pointing at VS Code's profile
+  manager for creating and managing the hat's profile.
 - Says when a hat has no profile yet, and how to create one.
 
 ## Setting up a folder
@@ -45,5 +48,7 @@ and rewrites it whenever anything changes.
 
 ## Installing
 
-`hats apply` installs it, as long as the `editor` group is on. It is installed
-into the default profile, which every hat profile shares its extensions with.
+Each hats release attaches the packaged extension as `hats-<version>.vsix`;
+install it with `code --install-extension hats-<version>.vsix`. It goes into
+the default profile, which every hat profile shares its extensions with. A
+marketplace listing is planned.

@@ -2,7 +2,7 @@
 //!
 //! Nothing is exported for ssh: the managed `~/.ssh/config` includes
 //! `~/.ssh/config.d/${HATS_HAT}.conf` and ssh expands the variable itself.
-//! These are the paths that include reads, so `hats apply` can scaffold them.
+//! These are the paths that include reads, so `hats hat sync` can scaffold them.
 
 use std::path::{Path, PathBuf};
 
@@ -25,7 +25,7 @@ pub fn common_path(home: &Path) -> PathBuf {
     dir(home).join("common.conf")
 }
 
-/// What `hats apply` writes into a hat's file (or, with no hat, common.conf)
+/// What `hats hat sync` writes into a hat's file (or, with no hat, common.conf)
 /// the one time it creates it.
 pub fn scaffold_text(hat: Option<&str>) -> String {
     let what = match hat {

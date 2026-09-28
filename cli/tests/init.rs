@@ -3,70 +3,22 @@
 //!
 //! The wizard runs unattended here through `--answers`, which is the point of
 //! routing every question through one `Prompter`: the interactive and the
-//! recorded paths are the same code.
+//! recorded paths are the same code. There is no network anywhere: hats has
+//! no repo to clone since the dotfiles engine moved out to bosun.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use assert_cmd::prelude::*;
 use predicates::prelude::*;
-
-/// A throwaway dotfiles repo with a manifest, tagged so version checks have
-/// something real to compare against.
-fn fixture_repo(dir: &Path, tag: Option<&str>) -> PathBuf {
-    let repo = dir.join("dotfiles");
-    std::fs::create_dir_all(&repo).unwrap();
-    std::fs::write(
-        repo.join("hats.yaml"),
-        r#"
-hats:
-  schema: 1
-groups:
-  shell: { description: "zsh config", default: true }
-  theme: { description: "colours", default: true }
-  extras: { description: "optional bits", default: false }
-files:
-  - { path: .zshrc.j2, group: shell }
-  - { path: .config/starship.toml, group: theme }
-  - { path: .config/bat, group: extras }
-secrets:
-  required: [git_signing_key]
-"#,
-    )
-    .unwrap();
-
-    let git = |args: &[&str]| {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(&repo)
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(
-            out.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    };
-    git(&["init", "--quiet", "-b", "main"]);
-    git(&["config", "user.email", "t@example.com"]);
-    git(&["config", "user.name", "T"]);
-    git(&["add", "."]);
-    git(&["commit", "--quiet", "-m", "manifest"]);
-    if let Some(t) = tag {
-        git(&["tag", "-a", t, "-m", t]);
-    }
-    repo
-}
+use std::process::Command;
 
 const ANSWERS: &str = r##"
 answers:
   identity.name: Jane
   identity.email: jane@example.com
 
-  groups.shell: true
-  groups.theme: true
-  groups.extras: false
+  features.ssh: true
+  features.vscode: false
 
   hat.1.name: normal
   hat.1.kube_context: ""
@@ -95,24 +47,21 @@ struct Env {
     home: PathBuf,
     /// Stands in for `$HOME`, where the per-hat files go.
     user_home: PathBuf,
-    repo: PathBuf,
     answers: PathBuf,
 }
 
 impl Env {
-    fn new(tag: Option<&str>) -> Self {
+    fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().join("hats-home");
         let user_home = dir.path().join("home");
         std::fs::create_dir_all(&user_home).unwrap();
-        let repo = fixture_repo(dir.path(), tag);
         let answers = dir.path().join("answers.yaml");
         std::fs::write(&answers, ANSWERS).unwrap();
         Self {
             _dir: dir,
             home,
             user_home,
-            repo,
             answers,
         }
     }
@@ -122,25 +71,19 @@ impl Env {
         c.arg("--hats-home")
             .arg(&self.home)
             .arg("--no-color")
-            .arg("--allow-mismatch")
             // Per-hat files land in a throwaway home, never the developer's.
             .env("HOME", &self.user_home)
             // Never inherit the developer's own hat state into a test.
             .env_remove("HATS_HAT")
             .env_remove("HATS_HAT_FILE")
             .env_remove("HATS_HAT_PREV")
-            .env_remove("HATS_HOME")
-            .env_remove("HATS_DEV");
+            .env_remove("HATS_HOME");
         c
     }
 
     fn init(&self) -> Command {
         let mut c = self.hats();
-        c.arg("--answers")
-            .arg(&self.answers)
-            .arg("init")
-            .arg("--repo")
-            .arg(&self.repo);
+        c.arg("--answers").arg(&self.answers).arg("init");
         c
     }
 
@@ -150,51 +93,76 @@ impl Env {
 }
 
 #[test]
-fn init_clones_the_repo_and_writes_a_config() {
-    let env = Env::new(Some("v0.1.0"));
+fn init_writes_a_config_and_scaffolds_without_any_network() {
+    let env = Env::new();
     env.init().assert().success();
 
-    assert!(
-        env.home.join("repo/hats.yaml").is_file(),
-        "repo was not cloned"
-    );
     assert!(
         env.home.join("config.yaml").is_file(),
         "config was not written"
     );
     assert!(env.home.join("backups").is_dir());
-    assert!(env.home.join("plans").is_dir());
 
     let cfg = env.config_text();
     assert!(
         cfg.starts_with("# ~/.hats/config.yaml"),
         "header missing:\n{cfg}"
     );
+
+    // init runs a sync, so the base skeletons and every hat's files exist.
+    for rel in [
+        ".gitconfig",
+        ".ssh/config",
+        ".ssh/config.d/README",
+        ".ssh/config.d/common.conf",
+        ".ssh/config.d/normal.conf",
+        ".ssh/config.d/acme.conf",
+        ".terraformrc",
+        ".tofurc",
+        ".gitconfig.d/normal",
+        ".gitconfig.d/acme",
+        ".kube/config.acme",
+    ] {
+        assert!(
+            env.user_home.join(rel).is_file(),
+            "{rel} was not scaffolded"
+        );
+    }
+    assert!(env.user_home.join(".ssh/known_hosts.d").is_dir());
+    assert!(env.user_home.join(".cache/opentofu/plugin-cache").is_dir());
+
+    let gitconfig = std::fs::read_to_string(env.user_home.join(".gitconfig")).unwrap();
+    assert!(
+        gitconfig.contains("email = jane@example.com"),
+        "{gitconfig}"
+    );
+    assert!(
+        gitconfig.contains("path = ~/.config/git/style.gitconfig"),
+        "{gitconfig}"
+    );
 }
 
 #[test]
 fn the_wizard_records_every_answer_it_was_given() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
     let cfg = env.config_text();
 
-    // Identity, groups, and the group the answers turned off.
+    // Identity and both hats, with inheritance and the per-hat overrides.
     assert!(cfg.contains("jane@example.com"));
-    assert!(cfg.contains("shell: true"));
-    assert!(cfg.contains("extras: false"));
-
-    // Both hats, with inheritance and the per-hat overrides.
     assert!(cfg.contains("normal:"));
     assert!(cfg.contains("acme:"));
     assert!(cfg.contains("inherits: normal"));
     assert!(cfg.contains("context: acme"));
     assert!(cfg.contains("jane.doe@acme.example"));
 
-    // Secrets: provider and endpoints derived from the base URL.
+    // Secrets: provider and endpoints derived from the base URL, plus the
+    // expected key that only the gitconfig scaffold reads.
     assert!(cfg.contains("provider: bitwarden"));
     assert!(cfg.contains("https://vault.example.net/api"));
     assert!(cfg.contains("https://vault.example.net/identity"));
     assert!(cfg.contains("method: yubikey-piv"));
+    assert!(cfg.contains("git_signing_key"));
 
     // No credential ever reaches the config file.
     assert!(
@@ -205,14 +173,14 @@ fn the_wizard_records_every_answer_it_was_given() {
 
 #[test]
 fn the_first_hat_becomes_the_default() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
     assert!(env.config_text().contains("default_hat: normal"));
 }
 
 #[test]
 fn init_refuses_to_clobber_an_existing_setup_without_force() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
     env.init()
         .assert()
@@ -223,7 +191,7 @@ fn init_refuses_to_clobber_an_existing_setup_without_force() {
 
 #[test]
 fn hat_list_shows_what_was_configured() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
 
     env.hats()
@@ -244,7 +212,7 @@ fn hat_list_shows_what_was_configured() {
 
 #[test]
 fn hat_show_folds_the_inheritance_chain() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
 
     env.hats()
@@ -261,7 +229,7 @@ fn hat_show_folds_the_inheritance_chain() {
 
 #[test]
 fn hat_show_names_a_hat_that_does_not_exist() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
     env.hats()
         .args(["hat", "show", "ghost"])
@@ -276,7 +244,7 @@ fn hat_show_names_a_hat_that_does_not_exist() {
 /// it.
 #[test]
 fn the_reset_list_covers_variables_from_every_hat() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
 
     let out = env.hats().args(["hat", "reset-list"]).output().unwrap();
@@ -298,11 +266,37 @@ fn the_reset_list_covers_variables_from_every_hat() {
     }
 }
 
+/// A second sync is a no-op, and one after a hand-deleted scaffold recreates
+/// only what is missing.
+#[test]
+fn hat_sync_settles_and_recreates_what_is_missing() {
+    let env = Env::new();
+    env.init().assert().success();
+
+    env.hats()
+        .args(["hat", "sync"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Everything is already in place"));
+
+    // Edits survive a sync: the scaffolds are created once, never updated.
+    let conf = env.user_home.join(".ssh/config.d/acme.conf");
+    std::fs::write(&conf, "Host mine\n").unwrap();
+    std::fs::remove_file(env.user_home.join(".gitconfig.d/acme")).unwrap();
+
+    env.hats()
+        .args(["hat", "sync"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(".gitconfig.d/acme"));
+    assert_eq!(std::fs::read_to_string(&conf).unwrap(), "Host mine\n");
+}
+
 /// `hats env --here` is what the shell's `cd` hook evals. Walk one shell into
 /// a tree that names a hat, around inside it, and back out.
 #[test]
 fn env_here_follows_the_nearest_dot_hat_file() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
 
     // Canonical, as the binary's own `current_dir` reports it.
@@ -381,7 +375,7 @@ fn the_zsh_cd_hook_switches_hats_as_the_shell_moves() {
     let Ok(zsh) = which::which("zsh") else {
         return;
     };
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
 
     std::fs::create_dir_all(env.user_home.join("work/sub")).unwrap();
@@ -409,7 +403,6 @@ fn the_zsh_cd_hook_switches_hats_as_the_shell_moves() {
         .env("PATH", path)
         .env("HOME", &env.user_home)
         .env("HATS_HOME", &env.home)
-        .env("HATS_DEV", "1")
         .env("NO_COLOR", "1")
         .env_remove("HATS_HAT")
         .env_remove("HATS_HAT_FILE")
@@ -438,19 +431,20 @@ fn the_zsh_cd_hook_switches_hats_as_the_shell_moves() {
 
 #[test]
 fn doctor_passes_on_a_freshly_initialised_machine() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
     env.hats()
         .arg("doctor")
         .assert()
         .success()
         .stdout(predicate::str::contains("2 hats"))
-        .stdout(predicate::str::contains("resolve cleanly"));
+        .stdout(predicate::str::contains("resolve cleanly"))
+        .stdout(predicate::str::contains("every per-hat file exists"));
 }
 
 #[test]
 fn doctor_before_init_fails_and_says_to_run_init() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.hats()
         .arg("doctor")
         .assert()
@@ -459,9 +453,8 @@ fn doctor_before_init_fails_and_says_to_run_init() {
 }
 
 #[test]
-fn version_reports_the_binary_and_the_repo() {
-    let env = Env::new(Some("v0.1.0"));
-    env.init().assert().success();
+fn version_reports_the_binary() {
+    let env = Env::new();
     env.hats()
         .args(["version", "--json"])
         .assert()
@@ -469,68 +462,12 @@ fn version_reports_the_binary_and_the_repo() {
         .stdout(predicate::str::contains(concat!(
             "\"version\":\"",
             env!("CARGO_PKG_VERSION")
-        )))
-        .stdout(predicate::str::contains("\"repo_tag\""));
-}
-
-/// `--check` is the machine-readable half of the lockstep: 0 in step, 3 repo
-/// behind, 4 binary behind.
-#[test]
-fn update_check_reports_a_repo_behind_the_binary() {
-    // Tagged with something older than this binary will ever be.
-    let env = Env::new(Some("v0.0.1"));
-    env.init().assert().success();
-    env.hats()
-        .args(["update", "--check"])
-        .assert()
-        .code(3)
-        .stdout(predicate::str::contains("hats update"));
-}
-
-#[test]
-fn update_check_reports_a_repo_ahead_of_the_binary() {
-    let env = Env::new(Some("v999.0.0"));
-    env.init().assert().success();
-    env.hats()
-        .args(["update", "--check"])
-        .assert()
-        .code(4)
-        .stdout(predicate::str::contains("brew upgrade"));
-}
-
-#[test]
-fn update_check_is_clean_when_the_tags_agree() {
-    let env = Env::new(Some(concat!("v", env!("CARGO_PKG_VERSION"))));
-    env.init().assert().success();
-    env.hats().args(["update", "--check"]).assert().code(0);
-}
-
-#[test]
-fn update_explains_a_tag_that_has_not_been_published_yet() {
-    let env = Env::new(Some("v0.0.1"));
-    env.init().assert().success();
-    env.hats()
-        .arg("update")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("no tag"));
-}
-
-#[test]
-fn a_repo_with_a_newer_schema_is_refused_with_an_upgrade_hint() {
-    let env = Env::new(Some("v0.1.0"));
-    env.init().assert().success();
-    std::fs::write(env.home.join("repo/hats.yaml"), "hats:\n  schema: 99\n").unwrap();
-    env.hats()
-        .args(["hat", "list"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("brew upgrade hats"));
+        )));
 }
 
 #[test]
 fn hat_create_adds_the_hat_and_makes_its_files() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
 
     env.hats()
@@ -561,6 +498,7 @@ fn hat_create_adds_the_hat_and_makes_its_files() {
 
     for rel in [
         ".gitconfig.d/globex",
+        ".ssh/config.d/globex.conf",
         ".aws/.hats/globex.config",
         ".aws/.hats/globex.credentials",
         ".kube/config.globex",
@@ -568,10 +506,6 @@ fn hat_create_adds_the_hat_and_makes_its_files() {
         assert!(env.user_home.join(rel).is_file(), "{rel} was not created");
     }
     assert!(env.user_home.join(".config/coderv2/hats/globex").is_dir());
-    // The fixture repo manages no ~/.ssh/config, so nothing would read one.
-    assert!(!env.user_home.join(".ssh/config.d/globex.conf").exists());
-    // Only the new hat's files: the others wait for an apply.
-    assert!(!env.user_home.join(".gitconfig.d/acme").exists());
 
     let out = env
         .hats()
@@ -584,7 +518,7 @@ fn hat_create_adds_the_hat_and_makes_its_files() {
 
 #[test]
 fn hat_create_refuses_a_taken_unsafe_or_reserved_name() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
     let before = env.config_text();
 
@@ -617,18 +551,15 @@ fn hat_create_refuses_a_taken_unsafe_or_reserved_name() {
 
 #[test]
 fn hat_delete_removes_the_hat_and_moves_every_file_to_the_backup() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
     env.hats()
         .args(["--non-interactive", "hat", "create", "globex"])
         .assert()
         .success();
 
-    // Files hats never manages: an ssh block written by hand, and a k9s
-    // plugin the user added to the hat's own directory.
-    let ssh = env.user_home.join(".ssh/config.d/globex.conf");
-    std::fs::create_dir_all(ssh.parent().unwrap()).unwrap();
-    std::fs::write(&ssh, "Host github.com\n  IdentityFile ~/.ssh/id_globex\n").unwrap();
+    // A file hats never manages: a k9s plugin the user added to the hat's own
+    // directory.
     let plugin = env.user_home.join(".config/k9s/hats/globex/plugins.yaml");
     std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
     std::fs::write(&plugin, "plugins: {}\n").unwrap();
@@ -673,7 +604,7 @@ fn hat_delete_removes_the_hat_and_moves_every_file_to_the_backup() {
 
 #[test]
 fn hat_delete_asks_first_and_refuses_what_would_break_the_config() {
-    let env = Env::new(Some("v0.1.0"));
+    let env = Env::new();
     env.init().assert().success();
     let before = env.config_text();
 
@@ -702,7 +633,7 @@ fn hat_delete_asks_first_and_refuses_what_would_break_the_config() {
 
 #[test]
 fn completions_are_generated_for_zsh() {
-    let env = Env::new(None);
+    let env = Env::new();
     env.hats()
         .args(["completions", "zsh"])
         .assert()

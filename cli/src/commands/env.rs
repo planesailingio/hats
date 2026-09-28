@@ -268,10 +268,9 @@ pub fn shell_init(app: &mut App, args: &ShellInitArgs) -> Result<()> {
     let (default_hat, vscode_profiles) = match app.config() {
         // The `code` function is only worth defining where hats manages the
         // editor, and it costs a `hats` call per `code` where it is defined.
-        Ok(cfg) => (Some(cfg.local.default_hat()), cfg.group_enabled("editor")),
+        Ok(cfg) => (Some(cfg.local.default_hat()), cfg.vscode_enabled()),
         Err(_) => (None, false),
     };
-    let repo_dir = app.paths.repo.to_string_lossy().into_owned();
 
     if args.shell != "zsh" {
         anyhow::bail!(
@@ -285,7 +284,6 @@ pub fn shell_init(app: &mut App, args: &ShellInitArgs) -> Result<()> {
     jinja.add_template("init", ZSH_INIT)?;
     let rendered = jinja.get_template("init")?.render(context! {
         default_hat => default_hat,
-        repo_dir => repo_dir,
         vscode_profiles => vscode_profiles,
     })?;
 
@@ -312,7 +310,6 @@ mod tests {
             .unwrap()
             .render(context! {
                 default_hat => default_hat,
-                repo_dir => "/home/t/.hats/repo",
                 vscode_profiles => vscode_profiles,
             })
             .unwrap()

@@ -2,7 +2,7 @@
   "name": "hats",
   "displayName": "hats",
   "description": "Keeps a window's VS Code profile in step with the hat its folder belongs to.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "planesailingio",
   "license": "MIT",
   "engines": {

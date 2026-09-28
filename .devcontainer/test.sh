@@ -1,12 +1,9 @@
 #!/bin/sh
-# Linux smoke test for the dotfiles, run inside the dev container.
+# Linux smoke test for hats, run inside the dev container.
 #
-# Builds hats from the mounted source, sets it up unattended against a throwaway
-# HOME, applies the files, and runs `hats test` — which makes a real commit and
-# checks two shells get separate kubeconfigs.
-#
-# The repo is mounted read-write but nothing here writes to it except cargo's
-# target directory.
+# Builds hats from the mounted source, sets it up unattended against a
+# throwaway HOME (no network: hats clones nothing), and runs `hats test` —
+# which makes a real commit and checks two shells get separate kubeconfigs.
 set -eu
 
 WORKSPACE="${WORKSPACE:-/workspace}"
@@ -19,18 +16,12 @@ cd "${WORKSPACE}"
 cargo build --release --locked -p hats
 HATS="${WORKSPACE}/target/release/hats"
 
-# A tagged clone, because hats deliberately refuses a repo whose tag does not
-# match the binary. Cloning also proves the manifest and files are committed.
-echo "==> preparing a tagged clone"
-SRC="$(mktemp -d)/dotfiles"
-git clone --quiet "${WORKSPACE}" "${SRC}"
-git -C "${SRC}" -c user.email=ci@example.com -c user.name=CI \
-    tag -a "v$("${HATS}" --version | awk '{print $2}')" -m ci 2>/dev/null || true
-
 cat > "${ANSWERS}" <<'ANSWERS_EOF'
 answers:
   identity.name: Test User
   identity.email: test@example.com
+  features.ssh: true
+  features.vscode: false
   hat.1.name: personal
   hat.1.kube_context: ""
   hat.add.2: true
@@ -48,28 +39,21 @@ printf 'apiVersion: v1\nkind: Config\ncurrent-context: shared\n' > "${FAKE_HOME}
 
 echo "==> hats init"
 HOME="${FAKE_HOME}" "${HATS}" --hats-home "${HATS_HOME}" --no-color \
-    --answers "${ANSWERS}" init --repo "${SRC}"
+    --answers "${ANSWERS}" init
 
-echo "==> hats plan"
-# Exit code 2 means "there are changes", which is what a fresh home should say.
-set +e
-HOME="${FAKE_HOME}" "${HATS}" --hats-home "${HATS_HOME}" --no-color plan --skip-hooks >/dev/null
-rc=$?
-set -e
-[ "${rc}" -eq 2 ] || { echo "FAIL: expected plan to report changes (exit 2), got ${rc}"; exit 1; }
+echo "==> the base skeletons are in place"
+for f in .gitconfig .ssh/config .terraformrc .tofurc \
+         .ssh/config.d/personal.conf .ssh/config.d/client.conf \
+         .gitconfig.d/personal .gitconfig.d/client; do
+  [ -f "${FAKE_HOME}/${f}" ] || { echo "FAIL: ${f} was not scaffolded"; exit 1; }
+done
 
-echo "==> hats apply"
-HOME="${FAKE_HOME}" "${HATS}" --hats-home "${HATS_HOME}" --no-color apply --yes --only-files
+echo "==> hats hat sync is a no-op after init"
+HOME="${FAKE_HOME}" "${HATS}" --hats-home "${HATS_HOME}" --no-color hat sync \
+  | grep -q "already in place" || { echo "FAIL: sync was not settled"; exit 1; }
 
-echo "==> hats plan is now clean"
-set +e
-HOME="${FAKE_HOME}" "${HATS}" --hats-home "${HATS_HOME}" --no-color plan --skip-hooks >/dev/null
-rc=$?
-set -e
-[ "${rc}" -eq 0 ] || { echo "FAIL: expected a clean plan (exit 0), got ${rc}"; exit 1; }
-
-echo "==> hats lint"
-HOME="${FAKE_HOME}" "${HATS}" --hats-home "${HATS_HOME}" --no-color lint --no-external
+echo "==> hats doctor"
+HOME="${FAKE_HOME}" "${HATS}" --hats-home "${HATS_HOME}" --no-color doctor
 
 echo "==> hats test"
 HOME="${FAKE_HOME}" "${HATS}" --hats-home "${HATS_HOME}" --no-color test

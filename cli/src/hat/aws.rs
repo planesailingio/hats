@@ -49,7 +49,7 @@ pub fn isolate(home: &Path, hat: &str) -> Result<(PathBuf, PathBuf)> {
     Ok((seed_config(home, hat)?, seed_credentials(home, hat)?))
 }
 
-/// Seed this hat's own config, once. Also how `hats apply` scaffolds it.
+/// Seed this hat's own config, once. Also how `hats hat sync` scaffolds it.
 pub fn seed_config(home: &Path, hat: &str) -> Result<PathBuf> {
     private_dir(home)?;
     seed(&config_path(home, hat), shared(home, "config"))

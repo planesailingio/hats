@@ -3,8 +3,8 @@
 # guarded (see scripts/update-tap.sh).
 #
 # The crate lives in cli/, not at the workspace root, so `bump` edits
-# cli/Cargo.toml. The lockstep guard in .github/workflows/release.yml requires
-# that version to equal the tag, which is what `bump` keeps true.
+# cli/Cargo.toml. The guard in .github/workflows/release.yml requires that
+# version to equal the tag, which is what `bump` keeps true.
 
 CARGO ?= cargo
 CRATE := cli/Cargo.toml

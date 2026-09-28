@@ -1,0 +1,59 @@
+# Package the VS Code extension (vscode/hats) as a .vsix and attach it to the
+# GitHub release for the tag that triggered the run.
+#
+# Marketplace publishing is scaffolded but OFF: the `publish` job needs a
+# marketplace publisher named `planesailingio` and a VSCE_PAT secret, neither
+# of which exists yet. Until then, install the asset by hand:
+#   code --install-extension hats-<version>.vsix
+name: Extension
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: package .vsix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Package
+        working-directory: vscode/hats
+        run: |
+          cp ../../LICENSE .
+          npx --yes @vscode/vsce package --allow-missing-repository --out hats.vsix
+          version=$(node -p "require('./package.json').version")
+          mv hats.vsix "hats-${version}.vsix"
+          echo "VSIX=vscode/hats/hats-${version}.vsix" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: ${{ env.VSIX }}
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" "$VSIX" --clobber
+
+  # Disabled: flip `if` to true once the planesailingio publisher exists on
+  # the VS Code marketplace and VSCE_PAT is set as a repository secret.
+  publish:
+    name: publish to the marketplace
+    needs: package
+    if: ${{ false }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+      - name: Publish
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx --yes @vscode/vsce publish --packagePath ./*.vsix

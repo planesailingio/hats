@@ -34,10 +34,6 @@ _hats_hats() {
 }
 compdef _hats_hats hat 2>/dev/null
 
-# Open the dotfiles checkout, and apply from anywhere.
-hats_edit() { ${EDITOR:-code} {{ repo_dir | sh_quote }}; }
-hats_apply() { command hats apply "$@"; }
-
 {% if vscode_profiles -%}
 # Open folders in this hat's VS Code profile, so each hat keeps its own
 # settings. VS Code then remembers the profile a folder was opened with.

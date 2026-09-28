@@ -80,7 +80,7 @@ fn fetch(app: &mut App) -> Result<i32> {
 
     // Anything a hat refers to but the vault did not supply.
     let mut wanted: std::collections::BTreeSet<String> =
-        cfg.repo.secrets.required.iter().cloned().collect();
+        cfg.local.secrets.expected.iter().cloned().collect();
     for name in cfg.hats().keys() {
         if let Ok(p) = cfg.resolve_hat(name) {
             wanted.extend(p.secret_refs());
@@ -134,7 +134,7 @@ fn status(app: &mut App) -> Result<i32> {
 
     // Names and whether they hold a value, never the values themselves.
     let mut wanted: std::collections::BTreeSet<String> =
-        cfg.repo.secrets.required.iter().cloned().collect();
+        cfg.local.secrets.expected.iter().cloned().collect();
     for name in cfg.hats().keys() {
         if let Ok(p) = cfg.resolve_hat(name) {
             wanted.extend(p.secret_refs());

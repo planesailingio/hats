@@ -4,14 +4,11 @@
 //!
 //! ```text
 //! ~/.hats/
-//! ├── repo/          git clone, checked out at the tag matching this binary
-//! ├── config.yaml    machine-local wizard answers: identity, groups, hats
+//! ├── config.yaml    machine-local wizard answers: identity, features, hats
 //! ├── secrets.yaml   0600, values fetched from the secrets provider
 //! ├── envelope.age   0600, provider credentials encrypted to the YubiKey
 //! ├── identity.txt   age-plugin-yubikey identity stub (public)
-//! ├── state.yaml     last-applied manifest and hook markers
-//! ├── backups/<ts>/  pre-overwrite copies and pruned files
-//! └── plans/         saved plans
+//! └── backups/<ts>/  files a deleted hat owned, and replaced configs
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -22,14 +19,11 @@ use anyhow::{Context, Result};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HatsPaths {
     pub root: PathBuf,
-    pub repo: PathBuf,
     pub config: PathBuf,
     pub secrets: PathBuf,
     pub envelope: PathBuf,
     pub identity: PathBuf,
-    pub state: PathBuf,
     pub backups: PathBuf,
-    pub plans: PathBuf,
 }
 
 impl HatsPaths {
@@ -37,14 +31,11 @@ impl HatsPaths {
     pub fn with_root(root: impl Into<PathBuf>) -> Self {
         let root = root.into();
         Self {
-            repo: root.join("repo"),
             config: root.join("config.yaml"),
             secrets: root.join("secrets.yaml"),
             envelope: root.join("envelope.age"),
             identity: root.join("identity.txt"),
-            state: root.join("state.yaml"),
             backups: root.join("backups"),
-            plans: root.join("plans"),
             root,
         }
     }
@@ -66,7 +57,7 @@ impl HatsPaths {
 
     /// Create the directories hats writes into. Files are created on demand.
     pub fn ensure_dirs(&self) -> Result<()> {
-        for dir in [&self.root, &self.backups, &self.plans] {
+        for dir in [&self.root, &self.backups] {
             std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         }
         Ok(())
@@ -85,10 +76,9 @@ mod tests {
     #[test]
     fn derives_every_path_from_the_root() {
         let p = HatsPaths::with_root("/tmp/h");
-        assert_eq!(p.repo, PathBuf::from("/tmp/h/repo"));
         assert_eq!(p.config, PathBuf::from("/tmp/h/config.yaml"));
         assert_eq!(p.secrets, PathBuf::from("/tmp/h/secrets.yaml"));
-        assert_eq!(p.state, PathBuf::from("/tmp/h/state.yaml"));
+        assert_eq!(p.backups, PathBuf::from("/tmp/h/backups"));
     }
 
     #[test]
@@ -104,7 +94,6 @@ mod tests {
         p.ensure_dirs().unwrap();
         p.ensure_dirs().unwrap();
         assert!(p.backups.is_dir());
-        assert!(p.plans.is_dir());
         assert!(!p.is_initialised());
     }
 }

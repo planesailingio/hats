@@ -14,7 +14,7 @@ pub fn config_path(home: &Path, hat: &str) -> PathBuf {
     home.join(".gitconfig.d").join(hat)
 }
 
-/// What `hats apply` writes into a hat's git config the one time it creates it.
+/// What `hats hat sync` writes into a hat's git config the one time it creates it.
 pub fn scaffold_text(hat: &str) -> String {
     format!(
         "# git config for hat {hat}, read by shells wearing it. Machine-local; \

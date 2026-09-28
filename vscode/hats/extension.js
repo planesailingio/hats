@@ -21,6 +21,8 @@ const SETTING = 'hats.hat';
 const SKIP_FOLDER = 'hats.skipFolder';
 const SKIP_MISSING = 'hats.skipMissingProfiles';
 
+const fs = require('fs');
+
 let log;
 let status;
 /** Hats already asked about in this window, so a decline is not re-asked. */
@@ -43,12 +45,16 @@ function activate(context) {
         check(context);
       }
     }),
-    vscode.workspace.onDidChangeWorkspaceFolders(() => check(context)),
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      check(context);
+      warnDetectedHat();
+    }),
   );
 
   watchHatsConfig(context);
   check(context);
   checkProfilesExist(context);
+  warnDetectedHat();
 }
 
 /** The hat this window's profile is for, and the one its folder asks for. */
@@ -130,6 +136,49 @@ async function setProfileHat(context) {
   }
 }
 
+/**
+ * A hat is in play for this window — a `.hat` file in the workspace folder, a
+ * `hats.hat` folder setting, or an active hat in the environment the window
+ * was launched from. Profiles are managed inside VS Code, so say so, every
+ * time one is found.
+ */
+async function warnDetectedHat() {
+  try {
+    const hat = detectedHat();
+    if (!hat) return;
+    const open = 'Open Profile Manager\u2026';
+    const answer = await vscode.window.showWarningMessage(
+      `Hat ${hat} detected. Create or manage this hat's VS Code profile with the profile manager (Manage \u2192 Profiles).`,
+      open,
+    );
+    if (answer === open) await switchProfile();
+  } catch (e) {
+    log.appendLine(`warnDetectedHat: ${e}`);
+  }
+}
+
+/** The hat this window is in, from the folder's .hat file, its settings, or
+ *  the environment `code` was started from. */
+function detectedHat() {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (folder?.uri?.fsPath) {
+    try {
+      const text = fs.readFileSync(path.join(folder.uri.fsPath, '.hat'), 'utf8');
+      const line = text
+        .split('\n')
+        .map((l) => l.trim())
+        .find((l) => l && !l.startsWith('#'));
+      if (line) return line;
+    } catch {
+      // No .hat file: fall through to the other signals.
+    }
+  }
+  const { folder: fromSettings } = hats();
+  if (fromSettings) return fromSettings;
+  const fromEnv = (process.env.HATS_HAT || '').trim();
+  return fromEnv || undefined;
+}
+
 /** Tell the user about hats with no profile: only hats can create one. */
 async function checkProfilesExist(context) {
   try {
@@ -143,14 +192,14 @@ async function checkProfilesExist(context) {
     }
     if (!missing.length) return;
 
-    const copy = 'Copy `hats apply`';
+    const copy = 'Copy `hats hat sync`';
     const never = "Don't show again";
     const answer = await vscode.window.showInformationMessage(
-      `No VS Code profile yet for ${missing.join(', ')}. hats creates profiles while VS Code is closed: quit VS Code and run \`hats apply\`, or open a folder with \`code\` from a shell wearing the hat.`,
+      `No VS Code profile yet for ${missing.join(', ')}. hats creates profiles while VS Code is closed: quit VS Code and run \`hats hat sync\`, or open a folder with \`code\` from a shell wearing the hat.`,
       copy,
       never,
     );
-    if (answer === copy) await vscode.env.clipboard.writeText('hats apply');
+    if (answer === copy) await vscode.env.clipboard.writeText('hats hat sync');
     else if (answer === never) await context.globalState.update(SKIP_MISSING, true);
   } catch (e) {
     log.appendLine(`checkProfilesExist: ${e}`);

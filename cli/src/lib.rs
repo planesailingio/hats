@@ -1,8 +1,8 @@
 //! hats — one laptop, many hats.
 //!
-//! A single binary that owns a dotfiles repo and the per-shell client hats
-//! layered on top of it. It replaces chezmoi, a Makefile, six `run_` scripts and
-//! a pile of hand-written zsh.
+//! A single binary for per-shell client hats: identity, cloud, kube and tool
+//! isolation, switched per terminal. Machine bootstrap and dotfiles are
+//! `bosun`, a sibling tool.
 //!
 //! The design rests on four rules, taken from the dotfiles' own docs:
 //!
@@ -19,13 +19,9 @@ pub mod app;
 pub mod cli;
 pub mod commands;
 pub mod config;
-pub mod engine;
 pub mod error;
 pub mod hat;
-pub mod hooks;
-pub mod model;
 pub mod paths;
 pub mod platform;
-pub mod repo;
 pub mod secrets;
 pub mod ui;

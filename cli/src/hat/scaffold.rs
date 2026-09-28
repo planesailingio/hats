@@ -3,7 +3,7 @@
 //! Every hat reads a few files of its own: ssh hosts, git settings, AWS and
 //! kube configs, k9s and coder directories. None of them belong in the repo
 //! and hats never renders into them, but a hat whose file does not exist yet is
-//! one more thing to remember to create. `hats apply` and `hats hat create`
+//! one more thing to remember to create. `hats hat sync` and `hats hat create`
 //! create the missing ones, and that is the end of hats' involvement: they are
 //! not recorded in state, so they are never updated or pruned. The one way out
 //! is `hats hat delete`, which moves every file the hat owns, edited or not,
@@ -16,7 +16,6 @@ use anyhow::{Context, Result, bail};
 
 use super::{aws, azure, coder, git, github, k9s, kube, ssh, terraform, vscode};
 use crate::config::Config;
-use crate::model::ManagedFile;
 
 /// Names that would land a hat's file on one every hat shares.
 const RESERVED: &[&str] = &["common"];
@@ -44,6 +43,9 @@ pub enum Kind {
     /// A VS Code profile for this hat, registered with VS Code and seeded
     /// from the default settings. Only when VS Code is not running.
     VscodeProfile(String),
+    /// An empty owner-only directory (base skeleton dirs like
+    /// ~/.ssh/known_hosts.d).
+    Dir,
 }
 
 /// One path a hat is missing.
@@ -59,35 +61,34 @@ pub struct Scaffold {
 
 /// Every per-hat path that does not exist yet, sorted.
 ///
-/// `managed` is this plan's expanded file list. It decides two things: ssh
-/// files are only scaffolded when hats manages the `~/.ssh/config` that
-/// includes them, and a k9s link is only made to something that exists or is
-/// about to. A hat that fails to resolve is skipped; `hats lint` reports it.
-pub fn wanted(cfg: &Config, home: &Path, managed: &[ManagedFile]) -> Vec<Scaffold> {
+/// ssh files follow the `features.ssh` flag, and a k9s link is only made to
+/// something that exists. A hat that fails to resolve is skipped;
+/// `hats doctor` reports it.
+pub fn wanted(cfg: &Config, home: &Path) -> Vec<Scaffold> {
     let mut out = Vec::new();
-    if manages_ssh(home, managed) {
+    if cfg.ssh_enabled() {
         out.push(text(home, ssh::common_path(home), ssh::scaffold_text(None)));
     }
     for name in cfg.hat_names() {
-        out.extend(per_hat(cfg, home, managed, &name));
+        out.extend(per_hat(cfg, home, &name));
     }
     finish(out)
 }
 
 /// The paths one hat is missing, and nothing for any other hat or the shared
-/// ssh file: `hats hat create` makes a hat's files without doing half an apply.
-pub fn for_hat(cfg: &Config, home: &Path, managed: &[ManagedFile], name: &str) -> Vec<Scaffold> {
-    finish(per_hat(cfg, home, managed, name))
+/// ssh file: `hats hat create` makes a hat's files without doing a full sync.
+pub fn for_hat(cfg: &Config, home: &Path, name: &str) -> Vec<Scaffold> {
+    finish(per_hat(cfg, home, name))
 }
 
-fn per_hat(cfg: &Config, home: &Path, managed: &[ManagedFile], name: &str) -> Vec<Scaffold> {
+fn per_hat(cfg: &Config, home: &Path, name: &str) -> Vec<Scaffold> {
     let Ok(hat) = cfg.resolve_hat(name) else {
         return Vec::new();
     };
-    let will_exist = |p: &Path| p.exists() || managed.iter().any(|f| f.target.starts_with(p));
+    let will_exist = |p: &Path| p.exists();
 
     let mut out = Vec::new();
-    if manages_ssh(home, managed) {
+    if cfg.ssh_enabled() {
         out.push(text(
             home,
             ssh::config_path(home, name),
@@ -185,7 +186,7 @@ fn per_hat(cfg: &Config, home: &Path, managed: &[ManagedFile], name: &str) -> Ve
 /// so hats leaves it alone. An unreadable profile list counts as "has one":
 /// hats does not write over state it cannot read.
 fn wants_vscode_profile(cfg: &Config, home: &Path, name: &str) -> bool {
-    cfg.group_enabled("editor")
+    cfg.vscode_enabled()
         && vscode::installed(home)
         && !vscode::has_profile(home, name).unwrap_or(true)
 }
@@ -205,12 +206,6 @@ pub fn vscode_pending(cfg: &Config, home: &Path) -> Vec<String> {
 fn default_vscode_settings(home: &Path) -> Option<PathBuf> {
     let path = vscode::user_dir(home).join("settings.json");
     path.is_file().then_some(path)
-}
-
-/// The per-hat files are only read through the managed skeleton's Include,
-/// so without it they would be clutter.
-fn manages_ssh(home: &Path, managed: &[ManagedFile]) -> bool {
-    managed.iter().any(|f| f.target == ssh::skeleton_path(home))
 }
 
 fn make(home: &Path, target: PathBuf, how: String, kind: Kind) -> Scaffold {
@@ -249,6 +244,7 @@ pub fn create(s: &Scaffold, home: &Path) -> Result<bool> {
     }
     match &s.kind {
         Kind::Text(text) => write_once(&s.target, text),
+        Kind::Dir => private_dirs(&s.target).map(|()| true),
         Kind::AwsConfig(hat) => aws::seed_config(home, hat).map(|_| true),
         Kind::AwsCredentials(hat) => aws::seed_credentials(home, hat).map(|_| true),
         Kind::Kube(hat) => kube::isolate(home, hat).map(|_| true),
@@ -439,27 +435,14 @@ mod tests {
     use super::super::testkit::*;
     use super::*;
 
-    fn managed(home: &Path, rel: &str) -> ManagedFile {
-        ManagedFile {
-            source: Path::new("/repo/files").join(rel),
-            rel: rel.into(),
-            target: home.join(rel),
-            mode: None,
-            dir_mode: None,
-            template: false,
-            secret: false,
-            group: "g".into(),
-        }
-    }
-
-    /// The same hats, with the editor group on and VS Code set up.
+    /// The same hats, with the vscode feature on and VS Code set up.
     fn with_editor(home: &Path) -> Config {
         std::fs::create_dir_all(vscode::user_dir(home)).unwrap();
-        config(&format!("groups: {{ editor: true }}\n{PROFILES}"))
+        config(&format!("features: {{ vscode: true }}\n{PROFILES}"))
     }
 
-    fn displays(home: &Path, files: &[ManagedFile]) -> Vec<String> {
-        wanted(&config(PROFILES), home, files)
+    fn displays(home: &Path) -> Vec<String> {
+        wanted(&config(PROFILES), home)
             .into_iter()
             .map(|s| s.display)
             .collect()
@@ -468,11 +451,11 @@ mod tests {
     #[test]
     fn every_hat_gets_a_file_for_each_tool_it_uses() {
         let home = tempfile::tempdir().unwrap();
-        let files = [
-            managed(home.path(), ".ssh/config"),
-            managed(home.path(), ".config/k9s/config.yaml"),
-        ];
-        let got = displays(home.path(), &files);
+        // The k9s link is only made to a config that exists.
+        let k9s_dir = home.path().join(".config/k9s");
+        std::fs::create_dir_all(&k9s_dir).unwrap();
+        std::fs::write(k9s_dir.join("config.yaml"), "k9s: {}\n").unwrap();
+        let got = displays(home.path());
         for want in [
             "~/.ssh/config.d/common.conf",
             "~/.ssh/config.d/normal.conf",
@@ -502,25 +485,21 @@ mod tests {
     }
 
     #[test]
-    fn a_vscode_profile_is_wanted_only_with_the_editor_group_and_vscode_present() {
+    fn a_vscode_profile_is_wanted_only_with_the_vscode_feature_and_vscode_present() {
         let home = tempfile::tempdir().unwrap();
-        // The editor group is off in every other test, so no hat asks for one.
-        assert!(
-            !displays(home.path(), &[])
-                .iter()
-                .any(|d| d.contains("profiles"))
-        );
+        // The vscode feature is off in every other test, so no hat asks for one.
+        assert!(!displays(home.path()).iter().any(|d| d.contains("profiles")));
 
         // On, but VS Code has never run on this machine.
-        let no_vscode = config(&format!("groups: {{ editor: true }}\n{PROFILES}"));
+        let no_vscode = config(&format!("features: {{ vscode: true }}\n{PROFILES}"));
         assert!(
-            !wanted(&no_vscode, home.path(), &[])
+            !wanted(&no_vscode, home.path())
                 .iter()
                 .any(|s| matches!(s.kind, Kind::VscodeProfile(_)))
         );
 
         let cfg = with_editor(home.path());
-        let profiles: Vec<String> = wanted(&cfg, home.path(), &[])
+        let profiles: Vec<String> = wanted(&cfg, home.path())
             .into_iter()
             .filter(|s| matches!(s.kind, Kind::VscodeProfile(_)))
             .map(|s| s.display)
@@ -535,7 +514,7 @@ mod tests {
         let cfg = with_editor(home.path());
         assert!(
             create(
-                &wanted(&cfg, home.path(), &[])
+                &wanted(&cfg, home.path())
                     .into_iter()
                     .find(|s| s.kind == Kind::VscodeProfile("acme".into()))
                     .unwrap(),
@@ -544,7 +523,7 @@ mod tests {
             .unwrap()
         );
 
-        let again: Vec<String> = wanted(&cfg, home.path(), &[])
+        let again: Vec<String> = wanted(&cfg, home.path())
             .into_iter()
             .filter(|s| s.kind == Kind::VscodeProfile("acme".into()))
             .map(|s| s.display)
@@ -565,7 +544,7 @@ mod tests {
         std::fs::write(&lock, std::process::id().to_string()).unwrap();
 
         assert!(
-            !wanted(&cfg, home.path(), &[])
+            !wanted(&cfg, home.path())
                 .iter()
                 .any(|s| matches!(s.kind, Kind::VscodeProfile(_)))
         );
@@ -578,9 +557,13 @@ mod tests {
     }
 
     #[test]
-    fn no_managed_ssh_config_means_no_ssh_files() {
+    fn turning_the_ssh_feature_off_drops_the_ssh_files() {
         let home = tempfile::tempdir().unwrap();
-        let got = displays(home.path(), &[]);
+        let cfg = config(&format!("features: {{ ssh: false }}\n{PROFILES}"));
+        let got: Vec<String> = wanted(&cfg, home.path())
+            .into_iter()
+            .map(|s| s.display)
+            .collect();
         assert!(!got.iter().any(|d| d.starts_with("~/.ssh")), "{got:?}");
         assert!(got.contains(&"~/.gitconfig.d/normal".to_string()));
     }
@@ -592,7 +575,7 @@ mod tests {
         std::fs::create_dir_all(existing.parent().unwrap()).unwrap();
         std::fs::write(&existing, "[user]\n").unwrap();
 
-        let got = displays(home.path(), &[]);
+        let got = displays(home.path());
         assert!(!got.contains(&"~/.gitconfig.d/acme".to_string()));
         assert!(got.contains(&"~/.gitconfig.d/normal".to_string()));
     }
@@ -603,7 +586,7 @@ mod tests {
         std::fs::create_dir_all(home.path().join(".aws")).unwrap();
         std::fs::write(home.path().join(".aws/config"), "[default]\n").unwrap();
 
-        let all = wanted(&config(PROFILES), home.path(), &[]);
+        let all = wanted(&config(PROFILES), home.path());
         let how = |display: &str| {
             all.iter()
                 .find(|s| s.display == display)
@@ -620,7 +603,7 @@ mod tests {
     fn a_text_scaffold_is_owner_only_and_written_once() {
         use std::os::unix::fs::PermissionsExt;
         let home = tempfile::tempdir().unwrap();
-        let s = wanted(&config(PROFILES), home.path(), &[])
+        let s = wanted(&config(PROFILES), home.path())
             .into_iter()
             .find(|s| s.display == "~/.gitconfig.d/acme")
             .unwrap();
@@ -638,8 +621,7 @@ mod tests {
     #[test]
     fn one_hat_scaffolds_only_its_own_files() {
         let home = tempfile::tempdir().unwrap();
-        let files = [managed(home.path(), ".ssh/config")];
-        let got: Vec<String> = for_hat(&config(PROFILES), home.path(), &files, "acme")
+        let got: Vec<String> = for_hat(&config(PROFILES), home.path(), "acme")
             .into_iter()
             .map(|s| s.display)
             .collect();
@@ -651,16 +633,15 @@ mod tests {
         assert!(got.iter().all(|d| d.contains("acme")), "{got:?}");
     }
 
-    /// Whatever apply scaffolds for a hat, delete has to find again.
+    /// Whatever sync scaffolds for a hat, delete has to find again.
     #[test]
     fn a_hat_owns_every_path_it_could_be_scaffolded() {
         let home = tempfile::tempdir().unwrap();
-        let files = [
-            managed(home.path(), ".ssh/config"),
-            managed(home.path(), ".config/k9s/config.yaml"),
-        ];
+        let k9s_dir = home.path().join(".config/k9s");
+        std::fs::create_dir_all(&k9s_dir).unwrap();
+        std::fs::write(k9s_dir.join("config.yaml"), "k9s: {}\n").unwrap();
         let owned = owned_paths(home.path(), "acme");
-        for s in for_hat(&config(PROFILES), home.path(), &files, "acme") {
+        for s in for_hat(&config(PROFILES), home.path(), "acme") {
             assert!(
                 owned.iter().any(|o| s.target.starts_with(o)),
                 "{} is not owned",

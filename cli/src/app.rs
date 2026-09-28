@@ -15,7 +15,6 @@ use crate::ui::{Answers, Interactive, Prompter, Ui};
 pub struct App {
     pub paths: HatsPaths,
     pub ui: Ui,
-    pub allow_mismatch: bool,
 }
 
 impl App {
@@ -30,14 +29,9 @@ impl App {
             (None, false) => Box::new(Interactive),
         };
 
-        // HATS_DEV is the escape hatch for working against a development clone
-        // whose tag will never match the binary.
-        let allow_mismatch = opts.allow_mismatch || env_flag("HATS_DEV");
-
         Ok(Self {
             paths,
             ui: Ui::new(prompter, opts.no_color, opts.verbose),
-            allow_mismatch,
         })
     }
 
@@ -45,27 +39,11 @@ impl App {
         Platform::detect()
     }
 
-    /// Load both halves of the configuration, with a message that says which
-    /// step the user has not run yet.
+    /// Load the configuration, with a message that says which step the user
+    /// has not run yet.
     pub fn config(&self) -> Result<Config> {
         Config::load(&self.paths)
             .with_context(|| format!("loading configuration from {}", self.paths.root.display()))
-    }
-
-    pub fn repo(&self) -> crate::repo::Repo<'static> {
-        crate::repo::open(&self.paths.repo)
-    }
-}
-
-/// An environment variable counts as set unless it is empty or an explicit
-/// falsehood, so `HATS_DEV=0` does what it looks like.
-fn env_flag(name: &str) -> bool {
-    match std::env::var(name) {
-        Ok(v) => !matches!(
-            v.trim().to_ascii_lowercase().as_str(),
-            "" | "0" | "false" | "no"
-        ),
-        Err(_) => false,
     }
 }
 
@@ -79,26 +57,8 @@ mod tests {
             non_interactive: true,
             answers: None,
             no_color: true,
-            allow_mismatch: false,
             verbose: 0,
         }
-    }
-
-    #[test]
-    fn env_flag_reads_the_obvious_falsehoods_as_false() {
-        // SAFETY: single-threaded test, variable is scoped to this test's name.
-        unsafe {
-            std::env::set_var("HATS_TEST_FLAG", "0");
-            assert!(!env_flag("HATS_TEST_FLAG"));
-            std::env::set_var("HATS_TEST_FLAG", "false");
-            assert!(!env_flag("HATS_TEST_FLAG"));
-            std::env::set_var("HATS_TEST_FLAG", "");
-            assert!(!env_flag("HATS_TEST_FLAG"));
-            std::env::set_var("HATS_TEST_FLAG", "1");
-            assert!(env_flag("HATS_TEST_FLAG"));
-            std::env::remove_var("HATS_TEST_FLAG");
-        }
-        assert!(!env_flag("HATS_TEST_FLAG"));
     }
 
     #[test]

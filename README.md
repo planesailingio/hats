@@ -2,7 +2,7 @@
 
 # 🎩 hats
 
-**Per-terminal identity switching and managed dotfiles for macOS and Linux.**
+**Per-terminal identity switching for macOS and Linux.**
 
 [![CI](https://github.com/planesailingio/hats/actions/workflows/ci.yml/badge.svg)](https://github.com/planesailingio/hats/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/tag/planesailingio/hats?label=release&sort=semver)](https://github.com/planesailingio/hats/releases)
@@ -19,11 +19,13 @@ I wear a lot of hats: several customers and products, each with its own
 environments and identities. Moving between them meant exporting environment
 variables, symlinking or rendering config files, running helper scripts, or
 starting a container just to work as the right identity. That time should have
-gone on the actual work. Over the years I tried solving it with bash aliases and built up a collection of bash functions to help, but there had to be a better way while solving a couple of other itches along the way. `hats` is that better way.
+gone on the actual work. Over the years I tried solving it with bash aliases
+and built up a collection of bash functions to help, but there had to be a
+better way. `hats` is that better way.
 
 With hats you can:
 
-- Switch your shell identity  
+- Switch your shell identity
   - git identity, SSH configs, cloud credentials, kube context, tokens
   and environment variables together with one command, `hat <name>`, in the
   current terminal only.
@@ -31,50 +33,18 @@ With hats you can:
   the previous hat's variables are unset on every switch, so commands such as
   `kubectl config use-context` or `aws sso login` in one terminal never affect
   another.
-- Manage your dotfiles like infrastructure. `hats plan` shows a line-level diff
-  of what would change in your home directory, and `hats apply` writes it,
-  backing up any file it replaces.
-- Get an opinionated shell setup built on zsh and the starship prompt, with the
-  CLI tools I use every day (see [Package bundles](#package-bundles)).
 
 It ships as a single binary with no runtime dependencies.
 
-```sh
-curl -fsSL https://planesailingio.github.io/hats/install.sh | sh
-```
+> Think of hats as the chezmoi for environment variables.
 
-
-## hats and alternatives
-
-I only started using [chezmoi](https://www.chezmoi.io/) recently, and I really liked it, hats was inspired by it and grew
-from it. Much of the dotfiles side of hats is modelled on it: a source
-repository rendered into your home directory as real files, templates with OS
-and architecture conditionals, and scripts that run once or when something they
-depend on changes.
-
-What chezmoi didn't give me was per-shell switching. It renders one state per
-machine. Templates can vary by host, OS or user, but once applied every terminal
-reads the same `~/.gitconfig`, `~/.kube/config` and `~/.aws/config`. That is a
-deliberate scope, not a flaw: chezmoi manages files, and the problem above needs
-environment variables set in the running shell. hats adds that layer on top of a
-chezmoi-style dotfiles engine.
-
-> Think of hats as the chezmoi for enviornment variables
-
-|                             | chezmoi                                           | hats                                              |
-| --------------------------- | ------------------------------------------------- | ------------------------------------------------- |
-| Per-terminal identities     | No, one applied state per machine                 | Yes, `hat <name>`                                 |
-| Preview before writing      | `chezmoi diff`, including scripts to run          | `hats plan`, Terraform-style with a summary line  |
-| Templates                   | Go `text/template`                                | minijinja (Jinja2 syntax)                         |
-| Scripts                     | `run_once_` / `run_onchange_` filename prefixes   | Hooks in `hats.yaml`; `onchange` names its inputs |
-| Secrets                     | 1Password, Bitwarden, pass, Vault and many more   | Bitwarden or Vaultwarden, cached locally          |
-| Platforms                   | macOS, Linux, Windows, BSDs                       | macOS and Linux; `hat` needs zsh                  |
-| Dotfiles                    | Bring your own                                    | Ships an opinionated zsh and tool setup           |
-| Maturity                    | Established, widely used, extensive documentation | New and pre-1.0; may still change                 |
-
-If you want a mature, cross-platform dotfiles manager and work in one context at
-a time, chezmoi is the better choice. If you need different identities active in
-different terminals at the same time, that is the gap hats fills.
+hats used to carry a whole dotfiles engine too. That half is now
+[bosun](https://github.com/planesailingio/bosun), a sibling tool that
+bootstraps the machine itself: Homebrew bundles, zsh, starship, themes and
+macOS defaults. The two are independent — hats works without bosun and bosun
+without hats — and meet at three small seams: bosun's `.zshrc` loads
+`hats shell-init zsh` behind a guard, its starship prompt shows `$HATS_HAT`,
+and the `~/.gitconfig` hats scaffolds includes bosun's git styling fragment.
 
 ## Supported Tools
 
@@ -86,7 +56,7 @@ changing it in one terminal changes it in all of them:
 | git          | `~/.gitconfig`                                 | `~/.gitconfig.d/<hat>`                              | `GIT_CONFIG_KEY_0`, plus `GIT_AUTHOR_*` and `GIT_COMMITTER_*` |
 | kubectl      | `~/.kube/config`                               | `~/.kube/config.<hat>`                              | `KUBECONFIG`                                                  |
 | AWS CLI      | `~/.aws/config` and `~/.aws/credentials`       | `~/.aws/.hats/<hat>.config` and `<hat>.credentials` | `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE`              |
-| Terraform    | `~/.terraformrc` and `~/.terraform.d/`         | `~/.terraform.d/.hats/<hat>.tfrc`                  | `TF_CLI_CONFIG_FILE`                                          |
+| Terraform    | `~/.terraformrc` and `~/.terraform.d/`         | `~/.terraform.d/.hats/<hat>.tfrc`                   | `TF_CLI_CONFIG_FILE`                                          |
 | Azure CLI    | `~/.azure/`                                    | `~/.azure/.hats/<hat>/`                             | `AZURE_CONFIG_DIR`                                            |
 | GitHub CLI   | `~/.config/gh/`                                | `~/.config/gh/.hats/<hat>/`                         | `GH_CONFIG_DIR`                                               |
 | VS Code      | one global `settings.json`                     | a VS Code profile per hat                           | `code --profile <hat>`, then VS Code remembers the folder     |
@@ -110,32 +80,20 @@ hats applies the whole context with one command and shows the active hat in
 your prompt. Switching in one terminal does not affect any other. A folder can
 also name its hat in a `.hat` file, and the shell then switches on `cd` (see
 [Per-folder hats](#per-folder-hats)).
+
 ## Quick start
 
 ### 1. Install
 
 ```sh
-curl -fsSL https://planesailingio.github.io/hats/install.sh | sh
-```
-
-The script installs Homebrew if it is missing (after asking), then installs
-hats. It does not write to your home directory. To use Homebrew directly:
-
-```sh
 brew install planesailingio/tools/hats
 ```
 
-On a new Mac without Xcode command line tools or Homebrew, use the bootstrap
-script instead. It installs all three and then runs `hats init`:
+On a new Mac, use bosun's bootstrap instead: it installs Xcode command line
+tools, Homebrew, bosun and hats, then runs both wizards:
 
 ```sh
-sh -c "$(curl -fsLS https://raw.githubusercontent.com/planesailingio/hats/main/bootstrap.sh)"
-```
-
-In containers and CI pipelines, set `CI=1` to skip the Homebrew prompt:
-
-```sh
-curl -fsSL https://planesailingio.github.io/hats/install.sh | CI=1 sh
+sh -c "$(curl -fsLS https://raw.githubusercontent.com/planesailingio/bosun/main/bootstrap.sh)"
 ```
 
 ### 2. Initialise
@@ -144,40 +102,27 @@ curl -fsSL https://planesailingio.github.io/hats/install.sh | CI=1 sh
 hats init
 ```
 
-This clones the dotfiles into `~/.hats/repo`, asks which file groups to manage
-(for example shell, git, ssh, theme, terraform and toolchains), and prompts for one or more hats: git
-name and email, kube context and terminal tint. Additional hats can inherit from
-an existing one. Nothing is written to your home directory at this stage.
+This asks who you are, which features you want (per-hat ssh, VS Code
+profiles), and prompts for one or more hats: git name and email, kube context
+and terminal tint. Additional hats can inherit from an existing one. It then
+scaffolds the base skeletons (`~/.gitconfig`, `~/.ssh/config`,
+`~/.terraformrc`, `~/.tofurc`) and every hat's per-tool files — each created
+once, never touched again. Nothing needs the network.
 
-### 3. Review the plan
+### 3. Switch hat
 
-```sh
-hats plan
-```
-
-Lists every file that would be created, changed or removed, with a diff. Edit
-`~/.hats/config.yaml` and re-run until the plan is what you want.
-
-### 4. Apply
-
-```sh
-hats apply
-```
-
-Writes the files, backs up anything it replaces, and runs setup hooks.
-
-### 5. Switch hat
-
-Open a new terminal, then:
+Open a new terminal (bosun's `.zshrc` loads the `hat` function; without bosun,
+add `eval "$(hats shell-init zsh)"` to yours), then:
 
 ```sh
 hat          # interactive picker
 hat acme     # or switch directly
 ```
 
-If you configured a secrets backend (experimental) during `hats init`, run `hats secrets fetch`
-to download your tokens. `hats doctor` reports anything missing from the
-machine.
+If you configured a secrets backend (experimental) during `hats init`, run
+`hats secrets fetch` to download your tokens. `hats doctor` reports anything
+missing from the machine, and `hats hat sync` recreates any scaffold that has
+gone missing.
 
 ## Example: a hat's lifecycle
 
@@ -194,7 +139,6 @@ $ hats hat create acme --git-email jane.doe@acme.com
 ✓ created ~/.aws/.hats/acme.config  (copy of ~/.aws/config)
 ✓ created ~/.aws/.hats/acme.credentials  (empty)
 ✓ created ~/.config/k9s/hats/acme/config.yaml  (→ ~/.config/k9s/config.yaml)
-✓ created ~/.config/k9s/hats/acme/skins  (→ ~/.config/k9s/skins)
 ✓ created ~/.gitconfig.d/acme  (comment line)
 ✓ created ~/.kube/config.acme  (copy of ~/.kube/config)
 ✓ created ~/.ssh/config.d/acme.conf  (comment line)
@@ -280,9 +224,8 @@ The most frequently used commands:
 
 ```sh
 hat                      # switch this terminal (picker, or `hat <name>`)
-hats update              # Updates the opinionated set of customisations and tooling
-hats plan                # preview changes after editing a dotfile or config
-hats apply               # apply them
+hats hat sync            # recreate any missing scaffold or profile
+hats secrets fetch       # refresh tokens from the vault
 ```
 
 Each terminal has its own hat. Opening a new terminal for a different context
@@ -293,16 +236,10 @@ means running `hat` in that terminal, unless the folder it opens in names a hat
 
 To change a hat's settings, such as a token or AWS account, edit its entry
 under `hats:` in `~/.hats/config.yaml`, then run `hat <name>` again in any shell
-that needs the change. `hats apply` is not needed, because each switch reads the
-config when it runs. The exception is the top-level `identity:` block, which is
-rendered into `~/.gitconfig` as the fallback identity and so requires
-`hats apply`.
-
-### Changing a dotfile
-
-Edit the file in `~/.hats/repo`, run `hats plan` to review the change and
-`hats apply` to write it. Shells that are already open keep the old version
-until restarted or refreshed.
+that needs the change. Nothing else is needed, because each switch reads the
+config when it runs. The exception is the top-level `identity:` block, which
+seeded `~/.gitconfig` when it was scaffolded; the file is yours now, so edit
+it directly.
 
 ### Adding a token
 
@@ -347,11 +284,12 @@ there is nothing to change.
 
 `hat` is a shell function, not a `hats` subcommand, because a child process
 cannot modify its parent shell's environment. `hats shell-init zsh` defines the
-function and is loaded from your `.zshrc`. `hats env <name>` prints the shell
-code a switch would run without executing it. If `hat` is not found, the shell
-was started before `hats apply` ran; open a new one.
+function and is loaded from your `.zshrc` (bosun's managed one carries the
+line already). `hats env <name>` prints the shell code a switch would run
+without executing it. If `hat` is not found, the shell started before the line
+was in place; open a new one.
 
-## Prompt and plan output
+## Prompt
 
 Switching prints a one-line summary:
 
@@ -360,8 +298,8 @@ $ hat acme
 ⛭ hat: acme  (git=jane.doe@acme.com  kube=acme)
 ```
 
-The prompt then shows the active hat and kube context, coloured by
-environment:
+With bosun's starship config, the prompt then shows the active hat and kube
+context, coloured by environment:
 
 ```console
 ╭─jane@laptop ~/git/acme/platform ‹main ✔›  󱃖 acme  ☸ staging  acme-aws
@@ -372,20 +310,7 @@ environment:
 ```
 
 Development contexts are green, staging yellow, and production bright red with
-a 🚨 marker.
-
-`hats plan` output follows the same conventions as `terraform plan`:
-
-```console
-$ hats plan
-  ~ ~/.zshrc                           update  (+4 −12)
-      -bindkey -e
-      +bindkey -e   # Emacs-style line editing
-  + ~/.config/starship.toml            create  (140 lines)
-  - ~/.config/k9s/skin.yml             destroy
-
-Plan: 1 to add, 1 to change, 1 to destroy, 0 permission changes, 0 to scaffold; 1 hook to run.
-```
+a 🚨 marker. Any prompt can do the same: the hat is just `$HATS_HAT`.
 
 ## Configuring hats
 
@@ -393,6 +318,9 @@ Hats are defined in `~/.hats/config.yaml`, which is machine-local and not kept
 in git:
 
 ```yaml
+features:
+  ssh: true        # per-hat ~/.ssh/config.d/<hat>.conf
+  vscode: false    # per-hat VS Code profiles and the `code` wrapper
 hats:
   normal:
     colour: "#2a2040"
@@ -412,6 +340,19 @@ hats:
 - `{ secret: ... }` is a reference to a fetched secret. The value itself is
   never stored in this file.
 
+### Base skeletons
+
+`hats init` (and `hats hat sync` after it) scaffolds the shared files the
+per-hat mechanisms hang off, each created once and then yours:
+
+- `~/.gitconfig` — the fallback identity, plus an `[include]` of bosun's
+  styling fragment (`~/.config/git/style.gitconfig`), which git skips when
+  bosun is not installed.
+- `~/.ssh/config` — the three-layer Include skeleton, plus `~/.ssh/config.d/`
+  with its README and `~/.ssh/known_hosts.d/` (with `features.ssh`).
+- `~/.terraformrc` and `~/.tofurc` — a shared provider cache and checkpoint
+  off, plus the cache directory itself.
+
 ### Per-hat tool isolation
 
 By default each hat gets its own configuration for the tools below, so commands
@@ -422,19 +363,19 @@ affect the shell that ran them.
 | ------------ | ------------------------------------------------ | ------------------------------------------------ | ----------------------------------- |
 | kubectl      | `~/.kube/config.<hat>`                           | `KUBECONFIG`                                     | `kube: { isolate: false }`          |
 | AWS CLI      | `~/.aws/.hats/<hat>.config`, `<hat>.credentials` | `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` | `aws: { isolate: false }`           |
-| Terraform    | `~/.terraform.d/.hats/<hat>.tfrc`              | `TF_CLI_CONFIG_FILE`                               | `terraform: { isolate: false }`     |
+| Terraform    | `~/.terraform.d/.hats/<hat>.tfrc`                | `TF_CLI_CONFIG_FILE`                             | `terraform: { isolate: false }`     |
 | Azure CLI    | `~/.azure/.hats/<hat>/`                          | `AZURE_CONFIG_DIR`                               | `azure: { isolate: false }`         |
 | GitHub CLI   | `~/.config/gh/.hats/<hat>/`                      | `GH_CONFIG_DIR`                                  | `github: { isolate: false }`        |
 | k9s          | `~/.config/k9s/hats/<hat>/`                      | `K9S_CONFIG_DIR`                                 | `k9s: { isolate: false }`           |
 | coder        | `~/.config/coderv2/hats/<hat>/`                  | `CODER_CONFIG_DIR`                               | `coder: { isolate: false }`         |
-| VS Code      | a profile named after the hat                    | `code --profile <hat>`, then VS Code remembers   | the `editor` group                  |
-| SSH          | `~/.ssh/config.d/<hat>.conf`                     | `HATS_HAT`, expanded in `~/.ssh/config`          | n/a                                 |
+| VS Code      | a profile named after the hat                    | `code --profile <hat>`, then VS Code remembers   | `features.vscode`                   |
+| SSH          | `~/.ssh/config.d/<hat>.conf`                     | `HATS_HAT`, expanded in `~/.ssh/config`          | `features.ssh`                      |
 | git          | `~/.gitconfig.d/<hat>`                           | `include.path` via `GIT_CONFIG_KEY_0`            | n/a                                 |
 
 #### SSH
 
 `~/.ssh/config` includes `~/.ssh/config.d/${HATS_HAT}.conf`, then
-`~/.ssh/config.d/common.conf` for hosts shared by all hats, then the hats
+`~/.ssh/config.d/common.conf` for hosts shared by all hats, then the
 `Host *` defaults. ssh expands the variable per process, so each shell sees only
 the hosts and keys of its active hat; `github.com` can use a different key in
 each terminal without wrapper scripts. These files are machine-local, and
@@ -448,8 +389,9 @@ Settings in `~/.gitconfig.d/<hat>`, such as `url.insteadOf` or
 
 #### k9s
 
-Each hat's k9s directory links to the managed theme, so plugins and
-aliases are kept separate per hat while the theme is shared.
+Each hat's k9s directory links to the shared `~/.config/k9s` files (which
+bosun themes), so plugins and aliases are kept separate per hat while the
+theme is shared.
 
 #### coder
 
@@ -457,22 +399,20 @@ aliases are kept separate per hat while the theme is shared.
 Keychain and into the hat's directory, so each hat has its own login.
 `coder: { url: https://coder.acme.com }` exports `CODER_URL` for the hat. hats
 sets `CODER_SSH_CONFIG_FILE`, so `coder config-ssh` writes workspace hosts into
-the hat's `~/.ssh/config.d/<hat>.conf` rather than the hats-managed
-`~/.ssh/config`.
+the hat's `~/.ssh/config.d/<hat>.conf` rather than the shared `~/.ssh/config`.
 
 #### Terraform
 
-The `terraform` group manages `~/.terraformrc` and `~/.tofurc` with the same
-settings: a provider cache shared by both tools at
-`~/.cache/opentofu/plugin-cache` (created by the `terraform-plugin-cache` hook,
-since neither tool creates it), and Terraform's checkpoint calls switched off.
-Tokens stay out of both files; give a hat `TF_TOKEN_<host>: { secret: <key> }`
-in its `env:` instead.
+hats scaffolds `~/.terraformrc` and `~/.tofurc` with the same settings: a
+provider cache shared by both tools at `~/.cache/opentofu/plugin-cache`
+(created by `hats hat sync`, since neither tool creates it), and Terraform's
+checkpoint calls switched off. Tokens stay out of both files; give a hat
+`TF_TOKEN_<host>: { secret: <key> }` in its `env:` instead.
 
 `TF_CLI_CONFIG_FILE` points each hat at its own `.terraform.d/.hats/<hat>.tfrc`,
 seeded once from the shared `~/.terraformrc` (or `~/.tofurc`, on a machine with
 only that). OpenTofu honours the variable too, so the one file serves both
-tools. Seeding is one-shot: a later change to the managed files does not reach
+tools. Seeding is one-shot: a later change to the shared files does not reach
 a hat that already has its copy. Setting the variable also makes Terraform
 skip the shared `~/.terraform.d` directory, so a hat's `credentials`,
 `credentials_helper`, `plugin_cache_dir` and `provider_installation` settings
@@ -496,16 +436,16 @@ isolating authentication tokens and host configuration from `gh auth login`.
 Editor settings are not environment variables, so VS Code is handled with its
 own mechanism: a profile per hat, named after the hat. Each profile has its own
 global `settings.json`, seeded from yours, and shares everything else with the
-default profile, extensions and their state included. Turn this on with the
-`editor` group.
+default profile, extensions and their state included. Turn this on with
+`features.vscode`.
 
 **hats creates and removes the profiles**, because a profile can only be
 registered while VS Code is closed: VS Code keeps its profile list in memory
 and rewrites it whenever anything changes.
 
-- `hats hat create` and `hats apply` register the missing ones. With VS Code
-  open, `create` offers to quit or force stop it, and otherwise leaves the
-  profile for the next `hats apply`. `hats doctor` lists what is outstanding.
+- `hats hat create` and `hats hat sync` register the missing ones. With
+  VS Code open, `create` offers to quit or force stop it, and otherwise leaves
+  the profile for the next sync. `hats doctor` lists what is outstanding.
 - `hats hat delete` unregisters the profile and moves its directory to
   `~/.hats/backups/`, once VS Code is stopped. A profile you made by hand with
   the hat's name is never touched.
@@ -523,9 +463,13 @@ and rewrites it whenever anything changes.
   { "hats.hat": "acme" }
   ```
 
-  The hats extension, installed by `hats apply`, then offers to switch profile
-  whenever that folder is opened under another one. It cannot switch by itself:
-  VS Code's switch command always asks, and offers no API to a profile.
+  The hats extension (in [vscode/hats](vscode/hats), packaged as a `.vsix` on
+  each release; install it with `code --install-extension`) then offers to
+  switch profile whenever that folder is opened under another one, and warns
+  whenever a `.hat` file or active hat is detected so the profile can be
+  created or managed through VS Code's own profile manager. It cannot switch
+  by itself: VS Code's switch command always asks, and offers no API to a
+  profile.
 
 Worth knowing:
 
@@ -543,15 +487,15 @@ Worth knowing:
 
 ### Per-hat files
 
-`hats hat create` creates these files along with the hat, and `hats apply`
+`hats hat create` creates these files along with the hat, and `hats hat sync`
 creates any that are missing for existing hats:
 
 - ssh and git: a file containing a comment line
 - AWS, kube and Terraform: a copy of the shared config file
-- k9s: links to the managed theme
+- k9s: links to the shared config and theme
 - coder, azure, github: an empty directory, mode 0700
 - VS Code: a profile registered with VS Code, its `settings.json` a copy of
-  your default one, mode 0700 (only with the `editor` group, and only while
+  your default one, mode 0700 (only with `features.vscode`, and only while
   VS Code is closed)
 
 After creation, hats does not modify these files. `hats hat delete <name>` is
@@ -561,97 +505,29 @@ can no longer find its files, so use `hats hat delete` instead.
 
 ## Commands
 
-Common commands:
+|                                  |                                                             |
+| -------------------------------- | ----------------------------------------------------------- |
+| `hat [name]`                     | Switch this shell. Without a name, shows a picker.          |
+| `hats init`                      | The wizard: identity, features, hats, secrets               |
+| `hats hat list`                  | List hats, marking the active one                           |
+| `hats hat show <name>`           | Show one hat with inheritance resolved                      |
+| `hats hat current`               | Show the hat active in this shell                           |
+| `hats hat sync`                  | Create every missing skeleton, per-hat file and profile     |
+| `hats hat create <name>`         | Add a hat and create its files, via flags or prompts        |
+| `hats hat delete <name>`         | Remove a hat and move its files to backups                  |
+| `hats hat vscode-profile <name>` | Say whether VS Code has that hat's profile; used by `code`  |
+| `hats env <name>`                | Print the shell code a switch would run, without running it |
+| `hats env --here`                | The same for the nearest `.hat` file; used by the `cd` hook |
+| `hats secrets fetch`             | Download tokens from the vault                              |
+| `hats doctor`                    | Check this machine has what hats needs                      |
+| `hats test`                      | Run end-to-end tests of the switcher in real shells         |
+| `hats shell-init zsh`            | Print the `hat` function and its completion                 |
+| `hats completions <shell>`       | Print the completion script for `hats`                      |
+| `hats version`                   | Show the binary version                                     |
 
-|                      |                                                    |
-| -------------------- | -------------------------------------------------- |
-| `hat [name]`         | Switch this shell. Without a name, shows a picker. |
-| `hats plan`          | Show what would change in your home directory      |
-| `hats apply`         | Apply the plan                                     |
-| `hats secrets fetch` | Download tokens from the vault                     |
-| `hats doctor`        | Check this machine has what hats needs             |
-
-<details>
-<summary><b>All commands</b>: hats, dotfiles, packages, maintenance</summary>
-
-<br>
-
-**Hats**
-
-|                          |                                                             |
-| ------------------------ | ----------------------------------------------------------- |
-| `hats hat list`          | List hats, marking the active one                           |
-| `hats hat show <name>`   | Show one hat with inheritance resolved                      |
-| `hats hat current`       | Show the hat active in this shell                           |
-| `hats hat create <name>` | Add a hat and create its files, via flags or prompts        |
-| `hats hat delete <name>` | Remove a hat and move its files to backups                  |
-| `hats env <name>`        | Print the shell code a switch would run, without running it |
-| `hats env --here`        | The same for the nearest `.hat` file; used by the `cd` hook |
-| `hats hat vscode-profile <name>` | Say whether VS Code has that hat's profile; used by `code` |
-
-**Dotfiles**
-
-|                      |                                                       |
-| -------------------- | ----------------------------------------------------- |
-| `hats diff`          | Show the diff without the hook plan                   |
-| `hats render <file>` | Render one template and print it, or syntax-check it  |
-| `hats hooks`         | List the repo's hooks, or run one by name             |
-| `hats lint`          | Check the manifest, templates, hats and shell scripts |
-
-**Packages** (see [Package bundles](#package-bundles))
-
-|                              |                                            |
-| ---------------------------- | ------------------------------------------ |
-| `hats brew install [bundle]` | Install a bundle (default: `full`)         |
-| `hats brew check <bundle>`   | Report what is missing without installing  |
-| `hats brew cleanup <bundle>` | Offer to remove packages not in the bundle |
-
-**Maintenance**
-
-|                            |                                                       |
-| -------------------------- | ----------------------------------------------------- |
-| `hats update`              | Check out the repo tag matching this binary           |
-| `hats version`             | Show binary and repo tags and whether they match      |
-| `hats test`                | Run end-to-end tests of the switcher in real shells   |
-| `hats shell-init zsh`      | Print the `hat` function and its completion           |
-| `hats completions <shell>` | Print the completion script for `hats`                |
-
-</details>
-
-Every command accepts `--help`.
-
-## Package bundles
-
-Packages are defined in four files under `brew/`. Every bundle includes `core`.
-
-| Bundle    | Contents                                                      | Intended for              |
-| --------- | ------------------------------------------------------------- | ------------------------- |
-| `core`    | shell, git, JSON/YAML/HTTP, system inspection, secrets, comms | any machine               |
-| `devops`  | core + clusters, cloud CLIs, IaC, containers, infra scanners  | infrastructure work       |
-| `pentest` | core + nmap, rustscan, sqlmap, Burp, sslscan                  | security testing          |
-| `dev`     | core + languages, service clients, code SAST, release tooling | software development      |
-| `full`    | all of the above                                              | default                   |
-
-```sh
-hats brew install devops    # core + devops
-hats brew check pentest     # report what is missing; installs nothing
-```
-
-<details>
-<summary>Why hats wraps <code>brew bundle</code></summary>
-
-<br>
-
-`brew bundle` accepts a single `--file`, so hats concatenates the bundle's files
-into one temporary Brewfile before calling it. This matters for `cleanup`: run
-against a single file, brew would offer to uninstall packages from the other
-files.
-
-The `brew-bundle` hook installs `${HATS_BREW_BUNDLE:-full}` on apply. Adding a
-bundle requires changes in three places: `brew/`, `BrewBundle` in
-`cli/src/cli.rs`, and the hook's `onchange` inputs in `hats.yaml`.
-
-</details>
+Every command accepts `--help`. The dotfiles commands that used to live here
+(`plan`, `apply`, `brew`, `hooks`, `lint`, `update`) are
+[bosun](https://github.com/planesailingio/bosun)'s now.
 
 ## Secrets
 
@@ -676,38 +552,43 @@ Without a YubiKey, `hats secrets fetch` prompts for the credentials each time
 and does not store them. On Linux, the plugin also requires the `pcscd` system
 service to access the smartcard; `hats doctor` checks for it.
 
+`secrets.expected` in the config lists keys nothing in a hat refers to but
+`hats secrets status` should still warn about — `git_signing_key`, which only
+the scaffolded `~/.gitconfig` reads, is seeded there by the wizard.
+
 ## File layout
 
-| Path                      | Contents                                                                                      |
-| ------------------------- | --------------------------------------------------------------------------------------------- |
-| `hats.yaml`               | Managed files, their groups, and hooks. Contains no names, emails or secrets.                 |
-| `files/`                  | The dotfiles, mirroring `$HOME`. Files ending in `.j2` are templates.                         |
-| `brew/`                   | The four package bundles.                                                                     |
-| `hooks/`                  | Setup scripts (Homebrew, bundles, zsh, macOS defaults, Dock).                                 |
-| `cli/`                    | The `hats` source code, in Rust.                                                              |
-| `~/.hats/config.yaml`     | Your hats, identities and endpoints. Machine-local, not in git.                               |
-| `~/.hats/secrets.yaml`    | Fetched tokens, mode 0600.                                                                    |
-| `~/.ssh/config.d/`        | SSH hosts and keys: `<hat>.conf` per hat, `common.conf` for all. Not in git.                  |
-| `~/.gitconfig.d/`         | Per-hat git settings in `<hat>`, included by shells wearing that hat. Not in git.             |
-| `~/.config/k9s/hats/`     | Per-hat k9s config in `<hat>/`, linked to the managed theme. Machine-local.                   |
-| `~/.config/coderv2/hats/` | Per-hat coder login in `<hat>/`: URL and session token, mode 0700.                            |
+| Path                      | Contents                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| `cli/`                    | The `hats` source code, in Rust.                                                  |
+| `vscode/hats/`            | The VS Code extension.                                                            |
+| `~/.hats/config.yaml`     | Your hats, identity, features and endpoints. Machine-local, not in git.           |
+| `~/.hats/secrets.yaml`    | Fetched tokens, mode 0600.                                                        |
+| `~/.hats/backups/`        | Files a deleted hat owned, and replaced configs.                                  |
+| `~/.ssh/config.d/`        | SSH hosts and keys: `<hat>.conf` per hat, `common.conf` for all. Not in git.      |
+| `~/.gitconfig.d/`         | Per-hat git settings in `<hat>`, included by shells wearing that hat. Not in git. |
+| `~/.config/k9s/hats/`     | Per-hat k9s config in `<hat>/`, linked to the shared theme. Machine-local.        |
+| `~/.config/coderv2/hats/` | Per-hat coder login in `<hat>/`: URL and session token, mode 0700.                |
 
-The repository contains only generic defaults. Hat definitions, identities and
-client details stay in machine-local files.
+## Migrating from hats ≤ 0.10
+
+Version 0.11 split the dotfiles engine out into bosun. On an existing machine:
+
+1. `brew upgrade hats && brew install planesailingio/tools/bosun`
+2. Add a `features:` block to `~/.hats/config.yaml` if you want non-default
+   values (the defaults match the old `ssh` and `editor` groups). Stale
+   `groups:` and `meta.repo` keys are ignored.
+3. `rm -rf ~/.hats/repo ~/.hats/state.yaml ~/.hats/plans`
+4. `bosun init && bosun plan` — the plan should show almost no file changes,
+   which is the migration check. The first apply re-runs hooks once; they are
+   idempotent. Your existing `~/.gitconfig` keeps its inline styling; trim it
+   when bosun's `~/.config/git/style.gitconfig` lands, or leave the duplicate,
+   which git tolerates.
 
 ## Versioning
 
-The binary and the dotfiles are released from the same git tag. `~/.hats/repo`
-is checked out at the tag matching the installed `hats` binary, so each binary
-version always runs against the dotfiles it was released with.
-
-```sh
-brew upgrade hats     # upgrade the binary
-hats update           # move the repo to the matching tag
-```
-
-`hats update --check` reports whether they match: exit code 0 if in step, 3 if
-the repo is behind, 4 if the binary is behind.
+Plain semver on the binary. After `brew upgrade hats` there is nothing else to
+run: the repo-tag lockstep went to bosun with the dotfiles.
 
 ## Development
 
@@ -715,18 +596,8 @@ the repo is behind, 4 if the binary is behind.
 cargo fmt --all             # CI runs --check, so format before pushing
 cargo test                  # unit, snapshot and integration tests
 cargo clippy --all-targets --all-features -- -D warnings
-hats lint                   # manifest, templates, hats, shell scripts
-hats test --container       # Linux test suite, in Docker
+.devcontainer/test.sh       # Linux smoke test (run inside the dev container)
 ```
-
-To run against a local checkout instead of the managed clone:
-
-```sh
-HATS_DEV=1 hats --hats-home /tmp/hats plan
-```
-
-The release process is documented in [docs/releasing.md](docs/releasing.md).
-Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Licence
 

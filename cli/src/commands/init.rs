@@ -1,9 +1,8 @@
 //! `hats init` — set hats up on a machine.
 //!
-//! Clone the dotfiles repo into `~/.hats/repo`, ask which groups of files to
-//! manage, walk a loop collecting hats until the user says stop, ask how
-//! secrets should be fetched, then write `~/.hats/config.yaml` and print the
-//! command list.
+//! Ask who you are, walk a loop collecting hats until the user says stop, ask
+//! how secrets should be fetched, then write `~/.hats/config.yaml`, scaffold
+//! the base skeletons and per-hat files, and print the command list.
 //!
 //! Every question goes through the [`Prompter`](crate::ui::Prompter), so the
 //! same code path runs unattended under `--non-interactive`/`--answers`. That
@@ -16,12 +15,8 @@ use crate::app::App;
 use crate::cli::InitArgs;
 use crate::config::hat::{HatSpec, IdentitySpec, KubeSpec};
 use crate::config::local::{
-    BitwardenConfig, EnvelopeConfig, EnvelopeMethod, LocalConfig, ProviderKind,
+    BitwardenConfig, EnvelopeConfig, EnvelopeMethod, Features, LocalConfig, ProviderKind,
 };
-use crate::config::repo::RepoConfig;
-
-/// Default clone URL. Overridable with `--repo`, and asked for interactively.
-const DEFAULT_REPO: &str = "https://github.com/planesailingio/hats.git";
 
 /// Suggested tints, cycled through as hats are added. Purple for personal,
 /// then colours distinct enough to tell apart at a glance in a wall of panes.
@@ -38,68 +33,32 @@ pub fn run(app: &mut App, args: &InitArgs) -> Result<()> {
 
     app.paths.ensure_dirs()?;
 
-    let url = clone_repo(app, args)?;
-    let manifest = RepoConfig::load(&app.paths.repo.join(crate::config::MANIFEST_NAME))
-        .context("reading the repo's hats.yaml")?;
-
     let identity = ask_identity(app)?;
-    let groups = ask_groups(app, &manifest)?;
+    let features = ask_features(app)?;
     let hats = ask_hats(app, &identity)?;
     let secrets = ask_secrets(app)?;
 
     let default_hat = hats.keys().next().cloned();
     let cfg = LocalConfig {
-        meta: crate::config::local::LocalMeta {
-            repo: Some(url),
-            default_hat,
-        },
+        meta: crate::config::local::LocalMeta { default_hat },
+        features,
         identity: Some(identity),
-        groups,
         hats,
         secrets,
-        machine: IndexMap::new(),
     };
 
     cfg.save(&app.paths.config)
         .with_context(|| format!("writing {}", app.paths.config.display()))?;
     app.ui.ok(format!("wrote {}", app.paths.config.display()));
 
+    // Base skeletons and per-hat files, so the first `hat <name>` finds
+    // everything in place.
+    let full = crate::config::Config { local: cfg.clone() };
+    crate::commands::hat::sync(app, &full)?;
+
     report_missed_answers(app);
     print_next_steps(app, &cfg);
     Ok(())
-}
-
-/// Clone the repo unless it is already there. Returns the URL recorded in the
-/// config so `hats update` knows where the clone came from.
-fn clone_repo(app: &mut App, args: &InitArgs) -> Result<String> {
-    let repo = app.repo();
-    if repo.exists() {
-        app.ui.ok(format!(
-            "using the existing clone at {}",
-            repo.path.display()
-        ));
-        return Ok(args
-            .repo
-            .clone()
-            .unwrap_or_else(|| DEFAULT_REPO.to_string()));
-    }
-
-    let url = match &args.repo {
-        Some(u) => u.clone(),
-        None => app
-            .ui
-            .prompter
-            .text("repo.url", "Dotfiles repo to clone", Some(DEFAULT_REPO))?,
-    };
-
-    app.ui.say(format!("Cloning {url}"));
-    repo.clone_from(&url).with_context(|| {
-        format!(
-            "cloning {url}. For a private repo, use an SSH URL or sign in with `gh auth login` first."
-        )
-    })?;
-    app.ui.ok(format!("cloned into {}", repo.path.display()));
-    Ok(url)
 }
 
 fn ask_identity(app: &mut App) -> Result<IdentitySpec> {
@@ -121,21 +80,19 @@ fn ask_identity(app: &mut App) -> Result<IdentitySpec> {
     })
 }
 
-fn ask_groups(app: &mut App, manifest: &RepoConfig) -> Result<IndexMap<String, bool>> {
-    app.ui.heading("Which configuration should hats manage?");
-    app.ui
-        .say("Every hat gets the same set of files; this is asked once.");
-
-    let mut answers = IndexMap::new();
-    for (name, spec) in &manifest.groups {
-        let enabled = app.ui.prompter.confirm(
-            &format!("groups.{name}"),
-            &format!("{name} — {}", spec.description),
-            spec.default,
-        )?;
-        answers.insert(name.clone(), enabled);
-    }
-    Ok(answers)
+fn ask_features(app: &mut App) -> Result<Features> {
+    app.ui.heading("Features");
+    let ssh = app.ui.prompter.confirm(
+        "features.ssh",
+        "Per-hat ssh config (~/.ssh/config.d/<hat>.conf)?",
+        true,
+    )?;
+    let vscode = app.ui.prompter.confirm(
+        "features.vscode",
+        "Per-hat VS Code profiles and the `code` wrapper?",
+        false,
+    )?;
+    Ok(Features { ssh, vscode })
 }
 
 /// Collect hats, prompting for another name until the user declines.
@@ -317,6 +274,7 @@ fn ask_secrets(app: &mut App) -> Result<crate::config::local::SecretsConfig> {
             provider,
             bitwarden: None,
             envelope: EnvelopeConfig::default(),
+            expected: vec!["git_signing_key".into()],
         });
     }
 
@@ -384,6 +342,9 @@ fn ask_secrets(app: &mut App) -> Result<crate::config::local::SecretsConfig> {
             recipient: None,
             slot,
         },
+        // The signing key has no hat that refers to it — only the scaffolded
+        // ~/.gitconfig reads it — so `secrets status` is told to expect it.
+        expected: vec!["git_signing_key".into()],
     })
 }
 
@@ -404,18 +365,18 @@ fn print_next_steps(app: &App, cfg: &LocalConfig) {
     app.ui.say(format!("Default:  {}", cfg.default_hat()));
     app.ui.say("");
     app.ui.say("Next:");
-    app.ui
-        .say("  hats plan                 preview what would change in your home directory");
-    app.ui.say("  hats apply                write the files");
     if cfg.secrets.provider != ProviderKind::None {
         app.ui
             .say("  hats secrets fetch        pull tokens into ~/.hats/secrets.yaml");
     }
+    app.ui
+        .say("  bosun init                the shell itself (zsh, starship, brew) is bosun's job");
     app.ui.say("");
 
     // The switcher is a shell function, so it only exists in shells started
-    // after apply. Saying so here heads off the obvious first attempt --
-    // `hats hat <name>`, which is a clap error rather than a switch.
+    // after bosun has written the zshrc that loads it. Saying so here heads
+    // off the obvious first attempt -- `hats hat <name>`, which is a clap
+    // error rather than a switch.
     app.ui.say("Then open a new terminal and switch it with:");
     app.ui.say(format!(
         "  hat {:<17} or plain `hat` to pick from a list",
@@ -427,9 +388,9 @@ fn print_next_steps(app: &App, cfg: &LocalConfig) {
     app.ui
         .say("`hat` is a shell function rather than a hats subcommand: only");
     app.ui
-        .say("your own shell can change its own environment. It arrives with the");
+        .say("your own shell can change its own environment. It is loaded by");
     app.ui
-        .say("files, so it exists in shells started after the apply.");
+        .say("`hats shell-init zsh`, which bosun's .zshrc evals.");
     app.ui.say("");
     app.ui.say("  hats --help               everything else");
 }

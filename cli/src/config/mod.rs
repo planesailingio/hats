@@ -1,12 +1,10 @@
-//! Configuration: the repo manifest plus the machine-local file, merged.
+//! Configuration: one machine-local file, `~/.hats/config.yaml`.
 //!
-//! Two files, one type. [`Config`] is what every command sees, so no command
-//! has to know which half a value came from.
+//! There is no repo manifest any more: the dotfiles engine that needed one is
+//! `bosun`, a sibling tool. Everything hats reads lives on this machine.
 
-pub mod condition;
 pub mod hat;
 pub mod local;
-pub mod repo;
 
 use std::collections::BTreeSet;
 
@@ -16,25 +14,17 @@ use crate::error::ConfigError;
 use crate::paths::HatsPaths;
 use hat::{HatSpec, ResolvedHat};
 use local::LocalConfig;
-use repo::RepoConfig;
 
-/// The manifest file inside the dotfiles repo.
-pub const MANIFEST_NAME: &str = "hats.yaml";
-/// Directory inside the repo holding the managed files.
-pub const FILES_DIR: &str = "files";
-
-/// Repo manifest and machine config, loaded together.
+/// The machine configuration every command sees.
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub repo: RepoConfig,
     pub local: LocalConfig,
 }
 
 impl Config {
     pub fn load(paths: &HatsPaths) -> Result<Self, ConfigError> {
         let local = LocalConfig::load(&paths.config)?;
-        let repo = RepoConfig::load(&paths.repo.join(MANIFEST_NAME))?;
-        Ok(Self { repo, local })
+        Ok(Self { local })
     }
 
     pub fn hats(&self) -> &IndexMap<String, HatSpec> {
@@ -57,19 +47,20 @@ impl Config {
         hat::all_env_keys(&self.local.hats, self.local.identity.as_ref())
     }
 
-    /// Groups enabled on this machine, honouring the manifest default for any
-    /// group the wizard has not been asked about yet (a group added upstream
-    /// after `hats init` ran).
-    pub fn group_enabled(&self, group: &str) -> bool {
-        match self.local.groups.get(group) {
-            Some(answer) => *answer,
-            None => self.repo.groups.get(group).is_some_and(|g| g.default),
-        }
+    /// Per-hat ssh files: scaffolds under ~/.ssh/config.d and the
+    /// CODER_SSH_CONFIG_FILE isolation.
+    pub fn ssh_enabled(&self) -> bool {
+        self.local.features.ssh
     }
 
-    /// Every problem `hats lint` should report about the configuration pair.
+    /// Per-hat VS Code profiles and the `code()` shell wrapper.
+    pub fn vscode_enabled(&self) -> bool {
+        self.local.features.vscode
+    }
+
+    /// Every problem `hats doctor` should report about the configuration.
     pub fn problems(&self) -> Vec<String> {
-        let mut problems = self.repo.group_problems();
+        let mut problems = Vec::new();
 
         for name in self.local.hats.keys() {
             if let Err(e) = self.resolve_hat(name) {
@@ -85,28 +76,6 @@ impl Config {
             ));
         }
 
-        // Secret references that the repo does not expect. Advisory only.
-        if !self.repo.secrets.required.is_empty() {
-            let known: BTreeSet<&str> = self
-                .repo
-                .secrets
-                .required
-                .iter()
-                .map(String::as_str)
-                .collect();
-            for name in self.local.hats.keys() {
-                if let Ok(p) = self.resolve_hat(name) {
-                    for r in p.secret_refs() {
-                        if !known.contains(r.as_str()) {
-                            problems.push(format!(
-                                "hat `{name}` refers to secret `{r}`, which is not in the repo's secrets.required list"
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-
         problems
     }
 }
@@ -114,56 +83,37 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::repo::GroupSpec;
 
-    fn config(repo_yaml: &str, local_yaml: &str) -> Config {
+    fn config(local_yaml: &str) -> Config {
         Config {
-            repo: serde_yaml_ng::from_str(repo_yaml).unwrap(),
             local: serde_yaml_ng::from_str(local_yaml).unwrap(),
         }
     }
 
     #[test]
-    fn an_unanswered_group_uses_the_manifest_default() {
-        let c = config(
-            "groups:\n  shell: { description: s, default: true }\n  extra: { description: e, default: false }\n",
-            "groups: {}\n",
-        );
-        assert!(c.group_enabled("shell"));
-        assert!(!c.group_enabled("extra"));
+    fn features_default_to_ssh_on_and_vscode_off() {
+        let c = config("hats:\n  normal: {}\n");
+        assert!(c.ssh_enabled());
+        assert!(!c.vscode_enabled());
     }
 
     #[test]
-    fn the_machine_answer_overrides_the_manifest_default() {
-        let c = config(
-            "groups:\n  shell: { description: s, default: true }\n",
-            "groups: { shell: false }\n",
-        );
-        assert!(!c.group_enabled("shell"));
-    }
-
-    #[test]
-    fn an_unknown_group_is_disabled_rather_than_assumed() {
-        let c = config("groups: {}\n", "groups: {}\n");
-        assert!(!c.group_enabled("ghost"));
+    fn features_can_be_turned_by_the_config() {
+        let c = config("features: { ssh: false, vscode: true }\nhats:\n  normal: {}\n");
+        assert!(!c.ssh_enabled());
+        assert!(c.vscode_enabled());
     }
 
     #[test]
     fn problems_report_a_bad_default_hat() {
-        let c = config(
-            "groups: {}\n",
-            "meta: { default_hat: ghost }\nhats:\n  normal: {}\n",
-        );
+        let c = config("meta: { default_hat: ghost }\nhats:\n  normal: {}\n");
         let problems = c.problems();
         assert!(problems.iter().any(|p| p.contains("ghost")), "{problems:?}");
     }
 
     #[test]
     fn problems_report_a_profile_cycle() {
-        let c = config(
-            "groups: {}\n",
-            "hats:\n  a: { inherits: b }\n  b: { inherits: a }\n",
-        );
+        let c = config("hats:\n  a: { inherits: b }\n  b: { inherits: a }\n");
         assert!(
             c.problems()
                 .iter()
@@ -172,31 +122,14 @@ mod tests {
     }
 
     #[test]
-    fn problems_flag_a_secret_the_repo_does_not_expect() {
-        let c = config(
-            "groups: {}\nsecrets:\n  required: [git_signing_key]\n",
-            "hats:\n  normal:\n    env:\n      TOK: { secret: mystery }\n",
-        );
-        let problems = c.problems();
-        assert!(
-            problems.iter().any(|p| p.contains("mystery")),
-            "{problems:?}"
-        );
-    }
-
-    #[test]
-    fn a_clean_pair_has_no_problems() {
-        let c = config(
-            "groups:\n  shell: { description: s }\nfiles:\n  - { path: .zshrc.j2, group: shell }\n",
-            "hats:\n  normal: {}\n  work: { inherits: normal }\n",
-        );
+    fn a_clean_config_has_no_problems() {
+        let c = config("hats:\n  normal: {}\n  work: { inherits: normal }\n");
         assert_eq!(c.problems(), Vec::<String>::new());
     }
 
     #[test]
-    fn resolve_and_env_keys_reach_through_the_merged_config() {
+    fn resolve_and_env_keys_reach_through_the_config() {
         let c = config(
-            "groups: {}\n",
             "identity: { name: Jane, email: r@e.com }\nhats:\n  normal: {}\n  work:\n    inherits: normal\n    env: { TOK: x }\n",
         );
         let work = c.resolve_hat("work").unwrap();
@@ -206,8 +139,12 @@ mod tests {
     }
 
     #[test]
-    fn group_spec_default_defaults_to_true() {
-        let g: GroupSpec = serde_yaml_ng::from_str("description: d\n").unwrap();
-        assert!(g.default);
+    fn stale_keys_from_before_the_bosun_split_still_parse() {
+        // groups: and meta.repo used to exist; serde ignores them rather than
+        // failing the whole config.
+        let c = config(
+            "meta: { repo: 'https://example.com/x.git' }\ngroups: { shell: true }\nhats:\n  normal: {}\n",
+        );
+        assert_eq!(c.hat_names(), vec!["normal"]);
     }
 }

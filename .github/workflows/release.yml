@@ -1,10 +1,8 @@
 # Release: build archives for four Unix targets on a `v*` tag, publish them as a
 # GitHub release, then update the Homebrew tap.
 #
-# The binary and the dotfiles content ship from ONE tag, which is what lets
-# `hats update` check out exactly the tag matching the running binary. The
-# `verify` job enforces that cli/Cargo.toml agrees with the tag, so the two can
-# never drift.
+# The `verify` job enforces that cli/Cargo.toml agrees with the tag, so a
+# release can never ship a binary that reports a different version.
 #
 # Credentials:
 #   The `tap` job pushes to planesailingio/homebrew-tools, which the default
@@ -38,8 +36,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The lockstep guard. A tag whose crate version disagrees would ship a binary
-  # that immediately tells its user to run `hats update` forever.
+  # A tag whose crate version disagrees would ship a binary that reports the
+  # wrong version to `brew upgrade` forever.
   verify:
     name: version matches the tag
     if: github.event_name == 'push'

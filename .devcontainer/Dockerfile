@@ -1,9 +1,8 @@
-# Dev container to smoke-test the dotfiles on Linux.
+# Dev container to smoke-test hats on Linux.
 #
-# Tests the portable core: hats builds, renders the templates, applies the files,
-# and switches profiles with the right identity and an isolated kubeconfig.
-# macOS-only pieces (defaults, dockutil, casks, chsh-to-brew-zsh) are gated by
-# `os: [darwin]` in hats.yaml, so they are never scheduled here.
+# Tests the portable core: hats builds, scaffolds the base skeletons and
+# per-hat files, and switches profiles with the right identity and an
+# isolated kubeconfig. No Homebrew: hats needs nothing but git and a shell.
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -29,11 +28,6 @@ WORKDIR /home/${USER}
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | sh -s -- -y --profile minimal --default-toolchain stable
 ENV PATH="/home/${USER}/.cargo/bin:${PATH}"
-
-# Homebrew (linuxbrew), so the brew-bundle hook has something to drive.
-RUN NONINTERACTIVE=1 /bin/bash -c \
-      "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
 
 # The repo is mounted at /workspace by devcontainer.json; the harness builds and
 # applies from there.

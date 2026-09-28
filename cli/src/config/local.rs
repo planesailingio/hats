@@ -24,29 +24,51 @@ const HEADER: &str = "\
 pub struct LocalConfig {
     #[serde(default)]
     pub meta: LocalMeta,
+    /// Which optional hats behaviours are on for this machine. These replace
+    /// the dotfiles manifest groups that used to gate them, before the engine
+    /// moved out to bosun.
+    #[serde(default)]
+    pub features: Features,
     /// Fallback identity: fills any field the base hat leaves unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<IdentitySpec>,
-    /// Wizard answers, one per group declared in the repo manifest.
-    #[serde(default)]
-    pub groups: IndexMap<String, bool>,
     #[serde(default)]
     pub hats: IndexMap<String, HatSpec>,
     #[serde(default)]
     pub secrets: SecretsConfig,
-    /// Free-form values exposed to templates as `machine.*`.
-    #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
-    pub machine: IndexMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LocalMeta {
-    /// Clone URL for the dotfiles repo.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repo: Option<String>,
     /// Profile loaded on shell start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_hat: Option<String>,
+}
+
+/// Optional behaviours. Defaults mirror the old manifest group defaults, so a
+/// config from before the split behaves the same.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Features {
+    /// Per-hat ~/.ssh/config.d/<hat>.conf scaffolds and the coder ssh
+    /// isolation that writes into them.
+    #[serde(default = "default_true")]
+    pub ssh: bool,
+    /// Per-hat VS Code profiles and the `code()` shell wrapper.
+    #[serde(default)]
+    pub vscode: bool,
+}
+
+impl Default for Features {
+    fn default() -> Self {
+        Self {
+            ssh: true,
+            vscode: false,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Which secrets backend to use. Only Bitwarden is implemented; the other
@@ -89,6 +111,11 @@ pub struct SecretsConfig {
     pub bitwarden: Option<BitwardenConfig>,
     #[serde(default)]
     pub envelope: EnvelopeConfig,
+    /// Secret keys expected to exist even though no hat refers to them, such
+    /// as `git_signing_key`, which only the scaffolded ~/.gitconfig reads.
+    /// `hats secrets status` warns when one is missing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub expected: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -220,15 +247,14 @@ mod tests {
     #[test]
     fn round_trips_through_yaml() {
         let mut cfg = LocalConfig::default();
-        cfg.meta.repo = Some("https://example.com/dotfiles.git".into());
         cfg.meta.default_hat = Some("normal".into());
         cfg.identity = Some(IdentitySpec {
             name: Some("Jane".into()),
             email: Some("jane@example.com".into()),
             signing_key: None,
         });
-        cfg.groups.insert("shell".into(), true);
-        cfg.groups.insert("editor".into(), false);
+        cfg.features.vscode = true;
+        cfg.secrets.expected = vec!["git_signing_key".into()];
         let mut normal = HatSpec {
             colour: Some("#2a2040".into()),
             ..Default::default()
@@ -247,7 +273,8 @@ mod tests {
 
         let back = LocalConfig::load(&path).unwrap();
         assert_eq!(back.default_hat(), "normal");
-        assert!(!back.groups["editor"]);
+        assert!(back.features.vscode && back.features.ssh);
+        assert_eq!(back.secrets.expected, vec!["git_signing_key".to_string()]);
         assert_eq!(
             back.hats["normal"].env["EDITOR"],
             EnvValue::Literal("code --wait".into())

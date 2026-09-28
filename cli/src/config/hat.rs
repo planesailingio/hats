@@ -356,7 +356,7 @@ impl ResolvedHat {
         keys
     }
 
-    /// Secret keys this hat refers to, so `hats lint` can flag a reference
+    /// Secret keys this hat refers to, so `hats doctor` can flag a reference
     /// to a secret the provider never supplies.
     pub fn secret_refs(&self) -> BTreeSet<String> {
         let mut refs = BTreeSet::new();
@@ -497,7 +497,7 @@ pub fn all_env_keys(
     let mut keys: BTreeSet<String> = ALWAYS_OWNED.iter().map(|s| (*s).to_string()).collect();
     for name in hats.keys() {
         // A broken hat must not silently shrink the reset list, but it is
-        // reported by `hats lint` rather than blocking a shell switch, so fall
+        // reported by `hats doctor` rather than blocking a shell switch, so fall
         // back to the raw keys we can see without resolving.
         match resolve(name, hats, base_identity) {
             Ok(p) => keys.extend(p.env_keys()),

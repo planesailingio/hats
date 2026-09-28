@@ -8,9 +8,9 @@ use anyhow::Result;
 
 use crate::app::App;
 use crate::cli::DoctorArgs;
+use crate::commands::version::BINARY_VERSION;
 use crate::config::Config;
 use crate::platform::Os;
-use crate::repo::{BINARY_VERSION, VersionStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -67,23 +67,18 @@ impl Check {
     }
 }
 
-/// Tools hats or its hooks call. `required` ones are checked as failures.
-const TOOLS: &[(&str, bool, &str)] = &[
-    ("git", true, "cloning and updating the dotfiles repo"),
-    ("zsh", false, "the shell the hat switcher targets"),
-    ("brew", false, "the Brewfile hook"),
-    (
-        "fzf",
-        false,
-        "the hat picker when `hat` is run with no name",
-    ),
-    ("kubectl", false, "per-hat kube context switching"),
+/// Tools hats calls. None of them is a hard requirement: a shell can switch
+/// hats with nothing but the binary.
+const TOOLS: &[(&str, &str)] = &[
+    ("zsh", "the shell the hat switcher targets"),
+    ("git", "the identity the switch exports is git's to honour"),
+    ("fzf", "the hat picker when `hat` is run with no name"),
+    ("kubectl", "per-hat kube context switching"),
     (
         // Installed as a Homebrew dependency, so an absence here means a source
         // build or a broken install. Still not fatal: it is only needed to
         // unseal the credential envelope.
         "age-plugin-yubikey",
-        false,
         "unsealing the YubiKey-protected credential envelope",
     ),
 ];
@@ -132,27 +127,14 @@ pub fn collect(app: &App) -> Vec<Check> {
 
     // Platform.
     match app.platform() {
-        Ok(p) => checks.push(Check::ok(
-            "platform",
-            format!(
-                "{} {} (brew prefix {})",
-                p.os,
-                p.arch,
-                p.brew_prefix.display()
-            ),
-        )),
+        Ok(p) => checks.push(Check::ok("platform", format!("{} {}", p.os, p.arch))),
         Err(e) => checks.push(Check::fail("platform", e.to_string(), None)),
     }
 
     // Tools.
-    for (tool, required, why) in TOOLS {
+    for (tool, why) in TOOLS {
         match which::which(tool) {
             Ok(path) => checks.push(Check::ok(tool, path.display().to_string())),
-            Err(_) if *required => checks.push(Check::fail(
-                tool,
-                format!("not found; needed for {why}"),
-                Some(&format!("brew install {tool}")),
-            )),
             Err(_) => checks.push(Check::warn(
                 tool,
                 format!("not found; {why} will not work"),
@@ -161,7 +143,7 @@ pub fn collect(app: &App) -> Vec<Check> {
         }
     }
 
-    // Home directory and repo.
+    // Home directory.
     if app.paths.root.is_dir() {
         checks.push(Check::ok("hats home", app.paths.root.display().to_string()));
     } else {
@@ -170,30 +152,6 @@ pub fn collect(app: &App) -> Vec<Check> {
             format!("{} does not exist", app.paths.root.display()),
             Some("hats init"),
         ));
-    }
-
-    let repo = app.repo();
-    match repo.status() {
-        Ok(VersionStatus::Missing) => checks.push(Check::fail(
-            "repo",
-            format!("no clone at {}", repo.path.display()),
-            Some("hats init"),
-        )),
-        Ok(status @ VersionStatus::Match { .. }) => {
-            checks.push(Check::ok("repo", status.summary()))
-        }
-        Ok(status @ VersionStatus::Untagged { .. }) => {
-            checks.push(Check::warn("repo", status.summary(), None))
-        }
-        Ok(status @ VersionStatus::RepoBehind { .. }) => {
-            checks.push(Check::warn("repo", status.summary(), Some("hats update")))
-        }
-        Ok(status @ VersionStatus::RepoAhead { .. }) => checks.push(Check::warn(
-            "repo",
-            status.summary(),
-            Some("brew upgrade hats"),
-        )),
-        Err(e) => checks.push(Check::fail("repo", e.to_string(), Some("hats init"))),
     }
 
     // Configuration.
@@ -228,11 +186,27 @@ pub fn collect(app: &App) -> Vec<Check> {
                 }
             }
 
-            if cfg.group_enabled("ssh") {
+            if let Ok(platform) = app.platform() {
+                let missing: Vec<String> = crate::hat::scaffold::wanted(&cfg, &platform.home)
+                    .into_iter()
+                    .map(|s| s.display)
+                    .collect();
+                if missing.is_empty() {
+                    checks.push(Check::ok("scaffolds", "every per-hat file exists"));
+                } else {
+                    checks.push(Check::warn(
+                        "scaffolds",
+                        format!("{} missing (first: {})", missing.len(), missing[0]),
+                        Some("hats hat sync"),
+                    ));
+                }
+            }
+
+            if cfg.ssh_enabled() {
                 checks.push(ssh_check(app));
             }
 
-            if cfg.group_enabled("editor")
+            if cfg.vscode_enabled()
                 && let Ok(platform) = app.platform()
                 && crate::hat::vscode::installed(&platform.home)
             {
@@ -249,7 +223,7 @@ pub fn collect(app: &App) -> Vec<Check> {
                 } else {
                     checks.push(Check::warn(
                         "secrets",
-                        "no secrets fetched yet; templates render with empty values",
+                        "no secrets fetched yet; hats exports empty values for them",
                         Some("hats secrets fetch"),
                     ));
                 }
@@ -276,9 +250,9 @@ fn vscode_check(cfg: &crate::config::Config, home: &std::path::Path) -> Check {
         return Check::ok("vscode", "every hat has a VS Code profile");
     }
     let hint = if vscode::running(home) {
-        "quit VS Code, then run `hats apply`"
+        "quit VS Code, then run `hats hat sync`"
     } else {
-        "hats apply"
+        "hats hat sync"
     };
     Check::warn(
         "vscode",
@@ -336,40 +310,27 @@ mod tests {
             non_interactive: true,
             answers: None,
             no_color: true,
-            allow_mismatch: false,
             verbose: 0,
         })
         .unwrap()
     }
 
     #[test]
-    fn an_uninitialised_machine_fails_on_repo_and_config() {
+    fn an_uninitialised_machine_fails_on_config() {
         let dir = tempfile::tempdir().unwrap();
         let app = app_in(dir.path());
         let checks = collect(&app);
 
-        let repo = checks.iter().find(|c| c.name == "repo").unwrap();
-        assert_eq!(repo.level, Level::Fail);
-        assert_eq!(repo.fix.as_deref(), Some("hats init"));
-
         let config = checks.iter().find(|c| c.name == "config").unwrap();
         assert_eq!(config.level, Level::Fail);
-    }
-
-    #[test]
-    fn git_is_checked_as_required() {
-        let dir = tempfile::tempdir().unwrap();
-        let checks = collect(&app_in(dir.path()));
-        let git = checks.iter().find(|c| c.name == "git").unwrap();
-        // Tests cannot run without git on PATH, so this must pass.
-        assert_eq!(git.level, Level::Ok, "{}", git.detail);
+        assert_eq!(config.fix.as_deref(), Some("hats init"));
     }
 
     #[test]
     fn optional_tooling_never_fails_the_run() {
         let dir = tempfile::tempdir().unwrap();
         let checks = collect(&app_in(dir.path()));
-        for name in ["fzf", "kubectl", "age-plugin-yubikey", "brew", "zsh"] {
+        for name in ["fzf", "kubectl", "age-plugin-yubikey", "zsh", "git"] {
             let c = checks.iter().find(|c| c.name == name).unwrap();
             assert_ne!(c.level, Level::Fail, "{name} must not be a hard failure");
         }
