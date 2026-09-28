@@ -1,15 +1,15 @@
-# Package the VS Code extension (vscode/hats) as a .vsix and attach it to the
-# GitHub release for the tag that triggered the run.
+# Package the VS Code extension (vscode/hats) as a .vsix, on demand. The
+# release pipeline attaches a .vsix to every release already (the `vsix` job
+# in release.yml); this workflow exists for ad-hoc builds and as the home of
+# the marketplace publish step.
 #
 # Marketplace publishing is scaffolded but OFF: the `publish` job needs a
 # marketplace publisher named `planesailingio` and a VSCE_PAT secret, neither
-# of which exists yet. Until then, install the asset by hand:
+# of which exists yet. Until then, install the release asset by hand:
 #   code --install-extension hats-<version>.vsix
 name: Extension
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -36,11 +36,6 @@ jobs:
         with:
           name: vsix
           path: ${{ env.VSIX }}
-      - name: Attach to the release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" "$VSIX" --clobber
 
   # Disabled: flip `if` to true once the planesailingio publisher exists on
   # the VS Code marketplace and VSCE_PAT is set as a repository secret.

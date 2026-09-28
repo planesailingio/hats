@@ -14,7 +14,8 @@
 #   Set the same way on moss and twig. Rotate by generating a new private key on
 #   the app's settings page and replacing the secret in each repository.
 #
-# Re-running the tap alone: Actions -> Release -> Run workflow -> version.
+# Re-running the tap and vsix jobs alone: Actions -> Release -> Run workflow
+# -> version.
 # See docs/releasing.md for the release procedure and the dry run.
 name: Release
 
@@ -169,3 +170,35 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.tap-token.outputs.token }}
         run: HATS_TAP_CONFIRM=1 scripts/update-tap.sh "${VERSION#v}"
+
+  # The VS Code extension, packaged and attached to the same release. It lives
+  # here rather than in its own release-triggered workflow because releases
+  # published with the default GITHUB_TOKEN do not trigger other workflows.
+  vsix:
+    name: package the VS Code extension
+    needs: release
+    if: >-
+      ${{ !cancelled()
+          && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Package
+        working-directory: vscode/hats
+        run: |
+          cp ../../LICENSE .
+          npx --yes @vscode/vsce package --allow-missing-repository --out hats.vsix
+          ext=$(node -p "require('./package.json').version")
+          mv hats.vsix "hats-${ext}.vsix"
+          echo "VSIX=vscode/hats/hats-${ext}.vsix" >> "$GITHUB_ENV"
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="v${VERSION#v}"
+          gh release upload "$tag" "$VSIX" --clobber --repo "$GITHUB_REPOSITORY"
