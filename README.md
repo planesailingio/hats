@@ -42,7 +42,7 @@ hats used to carry a whole dotfiles engine too. That half is now
 [bosun](https://github.com/planesailingio/bosun), a sibling tool that
 bootstraps the machine itself: Homebrew bundles, zsh, starship, themes and
 macOS defaults. The two are independent — hats works without bosun and bosun
-without hats — and meet at three small seams: bosun's `.zshrc` loads
+without hats — and meet at three small seams: bosun's zsh config loads
 `hats shell-init zsh` behind a guard, its starship prompt shows `$HATS_HAT`,
 and the `~/.gitconfig` hats scaffolds includes bosun's git styling fragment.
 
@@ -111,8 +111,8 @@ once, never touched again. Nothing needs the network.
 
 ### 3. Switch hat
 
-Open a new terminal (bosun's `.zshrc` loads the `hat` function; without bosun,
-add `eval "$(hats shell-init zsh)"` to yours), then:
+Open a new terminal (bosun's zsh config loads the `hat` function; without
+bosun, add `eval "$(hats shell-init zsh)"` to your `.zshrc`), then:
 
 ```sh
 hat          # interactive picker
@@ -284,10 +284,10 @@ there is nothing to change.
 
 `hat` is a shell function, not a `hats` subcommand, because a child process
 cannot modify its parent shell's environment. `hats shell-init zsh` defines the
-function and is loaded from your `.zshrc` (bosun's managed one carries the
-line already). `hats env <name>` prints the shell code a switch would run
-without executing it. If `hat` is not found, the shell started before the line
-was in place; open a new one.
+function and is loaded from your `.zshrc`, directly or via a file it sources
+(bosun's managed zsh config carries the line already). `hats env <name>`
+prints the shell code a switch would run without executing it. If `hat` is not
+found, the shell started before the line was in place; open a new one.
 
 ## Prompt
 

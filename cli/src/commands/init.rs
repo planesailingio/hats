@@ -374,7 +374,7 @@ fn print_next_steps(app: &App, cfg: &LocalConfig) {
     app.ui.say("");
 
     // The switcher is a shell function, so it only exists in shells started
-    // after bosun has written the zshrc that loads it. Saying so here heads
+    // after bosun has written the zsh config that loads it. Saying so here heads
     // off the obvious first attempt -- `hats hat <name>`, which is a clap
     // error rather than a switch.
     app.ui.say("Then open a new terminal and switch it with:");
@@ -390,7 +390,7 @@ fn print_next_steps(app: &App, cfg: &LocalConfig) {
     app.ui
         .say("your own shell can change its own environment. It is loaded by");
     app.ui
-        .say("`hats shell-init zsh`, which bosun's .zshrc evals.");
+        .say("`hats shell-init zsh`, which bosun's zsh config evals.");
     app.ui.say("");
     app.ui.say("  hats --help               everything else");
 }
