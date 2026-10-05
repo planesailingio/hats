@@ -160,8 +160,10 @@ impl EnvPlan {
             plan.aws_credentials = Some(aws::credentials_path(home, name));
         }
         if let Some(f) = &plan.aws_config {
-            plan.set
-                .insert("AWS_CONFIG_FILE".into(), f.to_string_lossy().into_owned().into());
+            plan.set.insert(
+                "AWS_CONFIG_FILE".into(),
+                f.to_string_lossy().into_owned().into(),
+            );
         }
         if let Some(f) = &plan.aws_credentials {
             plan.set.insert(
@@ -175,24 +177,30 @@ impl EnvPlan {
             plan.kube_context = p.kube.context.clone();
         }
         if let Some(kc) = &plan.kubeconfig {
-            plan.set
-                .insert("KUBECONFIG".into(), kc.to_string_lossy().into_owned().into());
+            plan.set.insert(
+                "KUBECONFIG".into(),
+                kc.to_string_lossy().into_owned().into(),
+            );
         }
 
         if p.k9s_isolated() {
             plan.k9s_config_dir = Some(k9s::config_dir(home, name));
         }
         if let Some(d) = &plan.k9s_config_dir {
-            plan.set
-                .insert("K9S_CONFIG_DIR".into(), d.to_string_lossy().into_owned().into());
+            plan.set.insert(
+                "K9S_CONFIG_DIR".into(),
+                d.to_string_lossy().into_owned().into(),
+            );
         }
 
         if p.coder_isolated() {
             plan.coder_config_dir = Some(coder::config_dir(home, name));
         }
         if let Some(d) = &plan.coder_config_dir {
-            plan.set
-                .insert("CODER_CONFIG_DIR".into(), d.to_string_lossy().into_owned().into());
+            plan.set.insert(
+                "CODER_CONFIG_DIR".into(),
+                d.to_string_lossy().into_owned().into(),
+            );
         }
 
         if p.terraform_isolated() {
@@ -209,16 +217,20 @@ impl EnvPlan {
             plan.azure_config_dir = Some(azure::config_dir(home, name));
         }
         if let Some(d) = &plan.azure_config_dir {
-            plan.set
-                .insert("AZURE_CONFIG_DIR".into(), d.to_string_lossy().into_owned().into());
+            plan.set.insert(
+                "AZURE_CONFIG_DIR".into(),
+                d.to_string_lossy().into_owned().into(),
+            );
         }
 
         if p.github_isolated() {
             plan.github_config_dir = Some(github::config_dir(home, name));
         }
         if let Some(d) = &plan.github_config_dir {
-            plan.set
-                .insert("GH_CONFIG_DIR".into(), d.to_string_lossy().into_owned().into());
+            plan.set.insert(
+                "GH_CONFIG_DIR".into(),
+                d.to_string_lossy().into_owned().into(),
+            );
         }
 
         if let Some(url) = &p.coder.url {
@@ -261,11 +273,13 @@ impl EnvPlan {
     fn add_identity(&mut self, p: &ResolvedHat, secrets: &Secrets, home: &std::path::Path) {
         if let Some(n) = &p.identity.name {
             self.set.insert("GIT_AUTHOR_NAME".into(), n.clone().into());
-            self.set.insert("GIT_COMMITTER_NAME".into(), n.clone().into());
+            self.set
+                .insert("GIT_COMMITTER_NAME".into(), n.clone().into());
         }
         if let Some(e) = &p.identity.email {
             self.set.insert("GIT_AUTHOR_EMAIL".into(), e.clone().into());
-            self.set.insert("GIT_COMMITTER_EMAIL".into(), e.clone().into());
+            self.set
+                .insert("GIT_COMMITTER_EMAIL".into(), e.clone().into());
         }
         // git 2.31+ reads GIT_CONFIG_COUNT/KEY_n/VALUE_n, which is how any git
         // setting becomes per-shell without touching ~/.gitconfig. Slot 0

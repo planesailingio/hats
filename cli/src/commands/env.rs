@@ -131,8 +131,10 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
     if let Some(kc) = plan.kubeconfig.clone() {
         match kube::isolate(&platform.home, &name) {
             Ok(path) => {
-                plan.set
-                    .insert("KUBECONFIG".into(), path.to_string_lossy().into_owned().into());
+                plan.set.insert(
+                    "KUBECONFIG".into(),
+                    path.to_string_lossy().into_owned().into(),
+                );
                 if let Some(ctx) = &plan.kube_context
                     && !kube::use_context(&path, ctx)
                 {
@@ -150,8 +152,10 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
     if plan.k9s_config_dir.is_some() {
         match k9s::isolate(&platform.home, &name) {
             Ok(dir) => {
-                plan.set
-                    .insert("K9S_CONFIG_DIR".into(), dir.to_string_lossy().into_owned().into());
+                plan.set.insert(
+                    "K9S_CONFIG_DIR".into(),
+                    dir.to_string_lossy().into_owned().into(),
+                );
             }
             Err(e) => {
                 app.ui.detail(format!("k9s isolation skipped: {e:#}"));
@@ -212,8 +216,10 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
     if plan.github_config_dir.is_some() {
         match github::isolate(&platform.home, &name) {
             Ok(dir) => {
-                plan.set
-                    .insert("GH_CONFIG_DIR".into(), dir.to_string_lossy().into_owned().into());
+                plan.set.insert(
+                    "GH_CONFIG_DIR".into(),
+                    dir.to_string_lossy().into_owned().into(),
+                );
             }
             Err(e) => {
                 app.ui.detail(format!("github isolation skipped: {e:#}"));
