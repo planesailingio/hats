@@ -1,6 +1,6 @@
 [package]
 name = "hats"
-version = "0.11.0"
+version = "0.12.0"
 description = "One laptop, many hats: per-shell client contexts and tool isolation."
 readme = "../README.md"
 keywords = ["profiles", "context", "cli", "identity", "shell"]
