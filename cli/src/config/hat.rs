@@ -53,6 +53,10 @@ pub const ALWAYS_OWNED: &[&str] = &[
     "AZURE_CONFIG_DIR",
     // GitHub CLI auth token and config are per-hat when isolated.
     "GH_CONFIG_DIR",
+    // The keys the last switch's `envFrom` commands exported. They are not
+    // known until the commands run, so the next switch reads this variable to
+    // clear them before the static unset list below takes over.
+    "HATS_ENVFROM_KEYS",
 ];
 
 /// A value in a hat's `env` map: either a literal or a reference to a
@@ -71,6 +75,17 @@ impl EnvValue {
             EnvValue::Literal(_) => None,
         }
     }
+}
+
+/// The command inside a whole-value `$(...)`, or None for an ordinary string.
+///
+/// Only a value that is nothing but the substitution evaluates; `$(...)`
+/// embedded in a longer string stays a literal, and a secret's value is never
+/// looked at. The config is the user's own file, so this is them asking for
+/// code to run, not injection.
+pub fn eval_body(value: &str) -> Option<&str> {
+    let body = value.strip_prefix("$(")?.strip_suffix(')')?.trim();
+    (!body.is_empty()).then_some(body)
 }
 
 /// Git identity for a hat. Every field is optional so a child hat can
@@ -268,6 +283,15 @@ pub struct HatSpec {
     pub github: Option<GithubSpec>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub env: IndexMap<String, EnvValue>,
+    /// Label -> command printing `KEY=val` lines, all exported at switch time.
+    /// The keys only exist at runtime, so they are cleared on the next switch
+    /// via `HATS_ENVFROM_KEYS` rather than the static reset list.
+    #[serde(
+        default,
+        rename = "envFrom",
+        skip_serializing_if = "IndexMap::is_empty"
+    )]
+    pub env_from: IndexMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub path: Vec<String>,
 }
@@ -287,6 +311,7 @@ pub struct ResolvedHat {
     pub azure: AzureSpec,
     pub github: GithubSpec,
     pub env: IndexMap<String, EnvValue>,
+    pub env_from: IndexMap<String, String>,
     pub path: Vec<String>,
 }
 
@@ -433,6 +458,7 @@ pub fn resolve(
         azure: AzureSpec::default(),
         github: GithubSpec::default(),
         env: IndexMap::new(),
+        env_from: IndexMap::new(),
         path: Vec::new(),
     };
 
@@ -471,6 +497,12 @@ pub fn resolve(
         }
         for (k, v) in &spec.env {
             out.env.insert(k.clone(), v.clone());
+        }
+        for (label, command) in &spec.env_from {
+            // `$(...)` reads naturally here too, since the value is always a
+            // command; strip it rather than emit a nested substitution.
+            let command = eval_body(command).unwrap_or(command);
+            out.env_from.insert(label.clone(), command.to_string());
         }
         for p in &spec.path {
             if !out.path.contains(p) {
@@ -692,6 +724,40 @@ acme:
     fn kube_isolation_defaults_to_on() {
         let hats = spec("solo: {}\n");
         assert!(resolve("solo", &hats, None).unwrap().kube_isolated());
+    }
+
+    #[test]
+    fn eval_body_accepts_only_a_whole_value_substitution() {
+        assert_eq!(eval_body("$(gh auth token)"), Some("gh auth token"));
+        assert_eq!(eval_body("$( spaced )"), Some("spaced"));
+        assert_eq!(eval_body("plain"), None);
+        assert_eq!(eval_body("prefix-$(cmd)"), None);
+        assert_eq!(eval_body("$()"), None);
+        assert_eq!(eval_body(""), None);
+    }
+
+    #[test]
+    fn env_from_inherits_and_the_child_wins_per_label() {
+        let hats = spec(
+            "base:\n  envFrom:\n    tokens: $(base-tool)\n    extra: other-tool\n\
+             child:\n  inherits: base\n  envFrom:\n    tokens: child-tool\n",
+        );
+        let p = resolve("child", &hats, None).unwrap();
+        // The `$(...)` wrapper is sugar and is stripped either way.
+        assert_eq!(p.env_from["tokens"], "child-tool");
+        assert_eq!(p.env_from["extra"], "other-tool");
+        let base = resolve("base", &hats, None).unwrap();
+        assert_eq!(base.env_from["tokens"], "base-tool");
+    }
+
+    /// envFrom keys only exist at runtime, so they cannot widen the static
+    /// reset list; the dynamic `HATS_ENVFROM_KEYS` is what clears them.
+    #[test]
+    fn env_from_does_not_touch_the_static_reset_list() {
+        let hats = spec("solo:\n  envFrom:\n    probe: some-tool\n");
+        let all = all_env_keys(&hats, None);
+        assert!(!all.contains("probe"));
+        assert!(all.contains("HATS_ENVFROM_KEYS"));
     }
 
     #[test]

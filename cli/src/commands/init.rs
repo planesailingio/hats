@@ -234,6 +234,7 @@ fn ask_one_hat(
         azure: None,
         github: None,
         env: IndexMap::new(),
+        env_from: IndexMap::new(),
         path: Vec::new(),
     })
 }

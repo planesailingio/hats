@@ -86,12 +86,12 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
             // At the front: HATS_HAT stays the last thing a switch sets.
             if let Some(prev) = prev {
                 plan.set
-                    .shift_insert(0, folder::PREV_VAR.into(), prev.clone());
+                    .shift_insert(0, folder::PREV_VAR.into(), prev.clone().into());
             }
             plan.set.shift_insert(
                 0,
                 folder::FILE_VAR.into(),
-                file.to_string_lossy().into_owned(),
+                file.to_string_lossy().into_owned().into(),
             );
         }
         Some(Step::Leave { .. }) => {
@@ -111,11 +111,11 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
             Ok((config, credentials)) => {
                 plan.set.insert(
                     "AWS_CONFIG_FILE".into(),
-                    config.to_string_lossy().into_owned(),
+                    config.to_string_lossy().into_owned().into(),
                 );
                 plan.set.insert(
                     "AWS_SHARED_CREDENTIALS_FILE".into(),
-                    credentials.to_string_lossy().into_owned(),
+                    credentials.to_string_lossy().into_owned().into(),
                 );
             }
             // Falling back to the shared files would silently reintroduce the
@@ -132,7 +132,7 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
         match kube::isolate(&platform.home, &name) {
             Ok(path) => {
                 plan.set
-                    .insert("KUBECONFIG".into(), path.to_string_lossy().into_owned());
+                    .insert("KUBECONFIG".into(), path.to_string_lossy().into_owned().into());
                 if let Some(ctx) = &plan.kube_context
                     && !kube::use_context(&path, ctx)
                 {
@@ -151,7 +151,7 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
         match k9s::isolate(&platform.home, &name) {
             Ok(dir) => {
                 plan.set
-                    .insert("K9S_CONFIG_DIR".into(), dir.to_string_lossy().into_owned());
+                    .insert("K9S_CONFIG_DIR".into(), dir.to_string_lossy().into_owned().into());
             }
             Err(e) => {
                 app.ui.detail(format!("k9s isolation skipped: {e:#}"));
@@ -167,7 +167,7 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
             Ok(dir) => {
                 plan.set.insert(
                     "CODER_CONFIG_DIR".into(),
-                    dir.to_string_lossy().into_owned(),
+                    dir.to_string_lossy().into_owned().into(),
                 );
             }
             Err(e) => {
@@ -184,7 +184,7 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
             Ok(file) => {
                 plan.set.insert(
                     "TF_CLI_CONFIG_FILE".into(),
-                    file.to_string_lossy().into_owned(),
+                    file.to_string_lossy().into_owned().into(),
                 );
             }
             Err(e) => {
@@ -199,7 +199,7 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
             Ok(dir) => {
                 plan.set.insert(
                     "AZURE_CONFIG_DIR".into(),
-                    dir.to_string_lossy().into_owned(),
+                    dir.to_string_lossy().into_owned().into(),
                 );
             }
             Err(e) => {
@@ -213,7 +213,7 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
         match github::isolate(&platform.home, &name) {
             Ok(dir) => {
                 plan.set
-                    .insert("GH_CONFIG_DIR".into(), dir.to_string_lossy().into_owned());
+                    .insert("GH_CONFIG_DIR".into(), dir.to_string_lossy().into_owned().into());
             }
             Err(e) => {
                 app.ui.detail(format!("github isolation skipped: {e:#}"));

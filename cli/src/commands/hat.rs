@@ -230,6 +230,12 @@ fn show(app: &App, cfg: &Config, name: &str, json: bool) -> Result<()> {
             app.ui.say(format!("  {k}={shown}"));
         }
     }
+    if !p.env_from.is_empty() {
+        app.ui.say("envFrom");
+        for (label, command) in &p.env_from {
+            app.ui.say(format!("  {label}: $({command})"));
+        }
+    }
     Ok(())
 }
 

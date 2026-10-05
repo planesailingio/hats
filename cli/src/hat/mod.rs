@@ -28,9 +28,39 @@ use std::path::PathBuf;
 use indexmap::IndexMap;
 
 use crate::config::Config;
-use crate::config::hat::{EnvValue, ResolvedHat};
+use crate::config::hat::{EnvValue, ResolvedHat, eval_body};
 use crate::error::ConfigError;
 use crate::secrets::store::Secrets;
+
+/// A value the emitter exports: a string to quote, or shell code to run.
+///
+/// `Eval` is a whole-value `$(...)` from the config. It is emitted verbatim
+/// inside a command substitution, so the command runs in the user's shell at
+/// switch time rather than inside `hats env`, where a slow or failing command
+/// would stall every shell start.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ShellValue {
+    Literal(String),
+    Eval(String),
+}
+
+impl From<String> for ShellValue {
+    fn from(s: String) -> Self {
+        ShellValue::Literal(s)
+    }
+}
+
+impl From<&str> for ShellValue {
+    fn from(s: &str) -> Self {
+        ShellValue::Literal(s.to_string())
+    }
+}
+
+impl PartialEq<&str> for ShellValue {
+    fn eq(&self, other: &&str) -> bool {
+        matches!(self, ShellValue::Literal(s) if s == other)
+    }
+}
 
 /// Everything a hat switch changes, resolved and ready to emit.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,7 +70,11 @@ pub struct EnvPlan {
     pub unset: Vec<String>,
     /// Exported in insertion order, which matters because later values may
     /// refer to earlier ones.
-    pub set: IndexMap<String, String>,
+    pub set: IndexMap<String, ShellValue>,
+    /// Label -> command printing `KEY=val` lines. Evaluated by the shell just
+    /// before `HATS_HAT`, with the exported keys tracked in
+    /// `HATS_ENVFROM_KEYS` so the next switch can clear them.
+    pub env_from: IndexMap<String, String>,
     /// Prepended to PATH, guarded against duplication.
     pub path_prepend: Vec<String>,
     pub kubeconfig: Option<PathBuf>,
@@ -98,6 +132,7 @@ impl EnvPlan {
             // The union across every hat. This is the leak fix.
             unset: cfg.all_env_keys().into_iter().collect(),
             set: IndexMap::new(),
+            env_from: IndexMap::new(),
             path_prepend: Vec::new(),
             kubeconfig: None,
             kube_context: None,
@@ -126,12 +161,12 @@ impl EnvPlan {
         }
         if let Some(f) = &plan.aws_config {
             plan.set
-                .insert("AWS_CONFIG_FILE".into(), f.to_string_lossy().into_owned());
+                .insert("AWS_CONFIG_FILE".into(), f.to_string_lossy().into_owned().into());
         }
         if let Some(f) = &plan.aws_credentials {
             plan.set.insert(
                 "AWS_SHARED_CREDENTIALS_FILE".into(),
-                f.to_string_lossy().into_owned(),
+                f.to_string_lossy().into_owned().into(),
             );
         }
 
@@ -141,7 +176,7 @@ impl EnvPlan {
         }
         if let Some(kc) = &plan.kubeconfig {
             plan.set
-                .insert("KUBECONFIG".into(), kc.to_string_lossy().into_owned());
+                .insert("KUBECONFIG".into(), kc.to_string_lossy().into_owned().into());
         }
 
         if p.k9s_isolated() {
@@ -149,7 +184,7 @@ impl EnvPlan {
         }
         if let Some(d) = &plan.k9s_config_dir {
             plan.set
-                .insert("K9S_CONFIG_DIR".into(), d.to_string_lossy().into_owned());
+                .insert("K9S_CONFIG_DIR".into(), d.to_string_lossy().into_owned().into());
         }
 
         if p.coder_isolated() {
@@ -157,7 +192,7 @@ impl EnvPlan {
         }
         if let Some(d) = &plan.coder_config_dir {
             plan.set
-                .insert("CODER_CONFIG_DIR".into(), d.to_string_lossy().into_owned());
+                .insert("CODER_CONFIG_DIR".into(), d.to_string_lossy().into_owned().into());
         }
 
         if p.terraform_isolated() {
@@ -166,7 +201,7 @@ impl EnvPlan {
         if let Some(f) = &plan.terraform_config_file {
             plan.set.insert(
                 "TF_CLI_CONFIG_FILE".into(),
-                f.to_string_lossy().into_owned(),
+                f.to_string_lossy().into_owned().into(),
             );
         }
 
@@ -175,7 +210,7 @@ impl EnvPlan {
         }
         if let Some(d) = &plan.azure_config_dir {
             plan.set
-                .insert("AZURE_CONFIG_DIR".into(), d.to_string_lossy().into_owned());
+                .insert("AZURE_CONFIG_DIR".into(), d.to_string_lossy().into_owned().into());
         }
 
         if p.github_isolated() {
@@ -183,11 +218,11 @@ impl EnvPlan {
         }
         if let Some(d) = &plan.github_config_dir {
             plan.set
-                .insert("GH_CONFIG_DIR".into(), d.to_string_lossy().into_owned());
+                .insert("GH_CONFIG_DIR".into(), d.to_string_lossy().into_owned().into());
         }
 
         if let Some(url) = &p.coder.url {
-            plan.set.insert("CODER_URL".into(), url.clone());
+            plan.set.insert("CODER_URL".into(), url.clone().into());
         }
         // `coder config-ssh` writes to ~/.ssh/config unless told otherwise, and
         // that file is hats'. Point it at the hat's own file, which the skeleton
@@ -195,7 +230,10 @@ impl EnvPlan {
         if cfg.ssh_enabled() {
             plan.set.insert(
                 "CODER_SSH_CONFIG_FILE".into(),
-                ssh::config_path(home, name).to_string_lossy().into_owned(),
+                ssh::config_path(home, name)
+                    .to_string_lossy()
+                    .into_owned()
+                    .into(),
             );
         }
 
@@ -203,8 +241,18 @@ impl EnvPlan {
             plan.colour = p.colour.clone();
         }
 
+        // Eval values run in the user's shell, so they are exported here,
+        // after every derived variable above: `$(gh auth token)` must see
+        // this hat's GH_CONFIG_DIR, not the previous hat's.
+        for (k, v) in &p.env {
+            if let ShellValue::Eval(cmd) = resolve(v, secrets) {
+                plan.set.insert(k.clone(), ShellValue::Eval(cmd));
+            }
+        }
+        plan.env_from = p.env_from.clone();
+
         // Set last, deliberately. The old zsh had a trap where a hat that
-        plan.set.insert("HATS_HAT".into(), name.to_string());
+        plan.set.insert("HATS_HAT".into(), name.to_string().into());
 
         plan.missing_secrets = secrets.missing(p.secret_refs().iter().map(String::as_str));
         Ok(plan)
@@ -212,12 +260,12 @@ impl EnvPlan {
 
     fn add_identity(&mut self, p: &ResolvedHat, secrets: &Secrets, home: &std::path::Path) {
         if let Some(n) = &p.identity.name {
-            self.set.insert("GIT_AUTHOR_NAME".into(), n.clone());
-            self.set.insert("GIT_COMMITTER_NAME".into(), n.clone());
+            self.set.insert("GIT_AUTHOR_NAME".into(), n.clone().into());
+            self.set.insert("GIT_COMMITTER_NAME".into(), n.clone().into());
         }
         if let Some(e) = &p.identity.email {
-            self.set.insert("GIT_AUTHOR_EMAIL".into(), e.clone());
-            self.set.insert("GIT_COMMITTER_EMAIL".into(), e.clone());
+            self.set.insert("GIT_AUTHOR_EMAIL".into(), e.clone().into());
+            self.set.insert("GIT_COMMITTER_EMAIL".into(), e.clone().into());
         }
         // git 2.31+ reads GIT_CONFIG_COUNT/KEY_n/VALUE_n, which is how any git
         // setting becomes per-shell without touching ~/.gitconfig. Slot 0
@@ -229,23 +277,34 @@ impl EnvPlan {
                 .to_string_lossy()
                 .into_owned(),
         )];
-        if let Some(key) = &p.identity.signing_key {
-            let value = resolve(key, secrets);
-            if !value.is_empty() {
-                config.push(("user.signingkey".into(), value));
-            }
+        // The signing key is never eval-shaped: a secret resolves to its
+        // stored value, and a literal key id has no reason to be computed.
+        if let Some(key) = &p.identity.signing_key
+            && let ShellValue::Literal(value) = resolve(key, secrets)
+            && !value.is_empty()
+        {
+            config.push(("user.signingkey".into(), value));
         }
         self.set
-            .insert("GIT_CONFIG_COUNT".into(), config.len().to_string());
+            .insert("GIT_CONFIG_COUNT".into(), config.len().to_string().into());
         for (i, (key, value)) in config.into_iter().enumerate() {
-            self.set.insert(format!("GIT_CONFIG_KEY_{i}"), key);
-            self.set.insert(format!("GIT_CONFIG_VALUE_{i}"), value);
+            self.set.insert(format!("GIT_CONFIG_KEY_{i}"), key.into());
+            self.set
+                .insert(format!("GIT_CONFIG_VALUE_{i}"), value.into());
         }
     }
 
     fn add_env(&mut self, p: &ResolvedHat, secrets: &Secrets) {
         for (k, v) in &p.env {
-            self.set.insert(k.clone(), resolve(v, secrets));
+            // Eval values are deferred: `build` exports them after the
+            // derived per-hat variables, so their commands run under this
+            // hat's isolated config.
+            match resolve(v, secrets) {
+                ShellValue::Eval(_) => {}
+                value => {
+                    self.set.insert(k.clone(), value);
+                }
+            }
         }
     }
 
@@ -255,10 +314,16 @@ impl EnvPlan {
     }
 }
 
-fn resolve(v: &EnvValue, secrets: &Secrets) -> String {
+fn resolve(v: &EnvValue, secrets: &Secrets) -> ShellValue {
     match v {
-        EnvValue::Literal(s) => s.clone(),
-        EnvValue::Secret { secret } => secrets.value_or_empty(secret),
+        // A whole-value `$(...)` is the user asking the shell to compute the
+        // value at switch time. A secret is a literal whatever it contains:
+        // only config-authored text may become code.
+        EnvValue::Literal(s) => match eval_body(s) {
+            Some(cmd) => ShellValue::Eval(cmd.to_string()),
+            None => ShellValue::Literal(s.clone()),
+        },
+        EnvValue::Secret { secret } => ShellValue::Literal(secrets.value_or_empty(secret)),
     }
 }
 
@@ -309,6 +374,9 @@ hats:
     env:
       JIRA_API_TOKEN: { secret: jira_token }
       JIRA_EMAIL: jane@acme.example
+      AWS_ACCOUNT: $(printf 123)
+    envFrom:
+      probe: printf 'DYN_A=a1\nDYN_B=two words\n'
   plain:
     kube: { isolate: false }
     k9s: { isolate: false }
@@ -472,6 +540,46 @@ mod tests {
         assert_eq!(p.set["JIRA_API_TOKEN"], "tok-123");
         assert_eq!(p.set["JIRA_EMAIL"], "jane@acme.example");
         assert_eq!(p.set["EDITOR"], "code --wait");
+    }
+
+    /// An eval value's command must run under this hat's isolated config, so
+    /// it is exported after the derived variables, with only the marker
+    /// behind it.
+    #[test]
+    fn eval_values_come_after_the_derived_variables_and_before_the_marker() {
+        let p = plan("acme", EnvOptions::default());
+        assert_eq!(p.set["AWS_ACCOUNT"], ShellValue::Eval("printf 123".into()));
+        let keys = p.exported();
+        let eval_at = keys.iter().position(|k| *k == "AWS_ACCOUNT").unwrap();
+        let gh_at = keys.iter().position(|k| *k == "GH_CONFIG_DIR").unwrap();
+        assert!(eval_at > gh_at, "eval before GH_CONFIG_DIR: {keys:?}");
+        assert_eq!(keys.last(), Some(&"HATS_HAT"));
+    }
+
+    #[test]
+    fn env_from_reaches_the_plan() {
+        let p = plan("acme", EnvOptions::default());
+        assert_eq!(p.env_from["probe"], r"printf 'DYN_A=a1\nDYN_B=two words\n'");
+        assert!(
+            plan("normal", EnvOptions::default()).env_from.is_empty(),
+            "envFrom must not leak across hats that do not declare it"
+        );
+    }
+
+    /// Only config-authored text may become code: a secret whose stored value
+    /// happens to look like a substitution is still quoted as a literal.
+    #[test]
+    fn a_secret_shaped_like_a_substitution_stays_literal() {
+        let cfg = config("hats:\n  h:\n    env:\n      TOK: { secret: t }\n");
+        let p = EnvPlan::build(
+            &cfg,
+            "h",
+            &secrets(&[("t", "$(whoami)")]),
+            std::path::Path::new("/home/t"),
+            EnvOptions::default(),
+        )
+        .unwrap();
+        assert_eq!(p.set["TOK"], ShellValue::Literal("$(whoami)".into()));
     }
 
     /// The regression guard: switching to a hat that sets none of the

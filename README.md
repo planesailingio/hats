@@ -333,12 +333,30 @@ hats:
     kube: { context: acme }
     env:
       JIRA_TOKEN: { secret: acme/jira }
+      GH_TOKEN: $(gh auth token)
+    envFrom:
+      vault: $(vault-env --format=dotenv)
 ```
 
 - `inherits` merges in the parent hat, so a child only needs to specify what
   differs.
 - `{ secret: ... }` is a reference to a fetched secret. The value itself is
   never stored in this file.
+- A value that is exactly `$(command)` is evaluated by the shell at switch
+  time. It runs after hats' own variables are exported, so `$(gh auth token)`
+  reads the hat's own `GH_CONFIG_DIR`, not the previous hat's. A secret's
+  value is never evaluated, whatever it contains; only text written in this
+  file becomes code.
+- `envFrom` names commands whose output is `KEY=val` lines, one variable per
+  line, all exported. The keys are only known at runtime, so the switch
+  records them in `HATS_ENVFROM_KEYS` and the next switch unsets them before
+  anything else — the same no-leak guarantee as `env`, enforced dynamically.
+  Lines that are empty, start with `#`, or have no well-formed key are
+  skipped.
+
+Both kinds of eval run on every new shell as well as every switch, so the
+commands should be fast and safe to repeat. A failing command leaves its
+variable(s) empty for that shell, with the error on stderr.
 
 ### Base skeletons
 

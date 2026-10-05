@@ -5,7 +5,7 @@
 //! wrong. `hats env` writes nothing to stdout on failure, because a partial
 //! script evaluated by a login shell is far worse than no script.
 
-use super::EnvPlan;
+use super::{EnvPlan, ShellValue};
 
 /// A shell dialect hats can emit for.
 pub trait ShellEmitter {
@@ -40,6 +40,16 @@ impl ShellEmitter for Zsh {
 
         out.push_str(&format!("# hats: hat {}\n", plan.hat));
 
+        // The previous switch's envFrom keys are only known to the shell, in
+        // HATS_ENVFROM_KEYS, so clear them first. `eval` because zsh does not
+        // word-split an unquoted variable; the keys were validated against
+        // [A-Za-z0-9_] when the loop below exported them, so nothing else can
+        // reach the eval.
+        out.push_str(
+            "[ -n \"${HATS_ENVFROM_KEYS:-}\" ] && \
+             { eval \"unset $HATS_ENVFROM_KEYS\"; unset HATS_ENVFROM_KEYS; } 2>/dev/null\n",
+        );
+
         // Unset before you set. `2>/dev/null` because unsetting a variable that
         // was never set is noisy in some shells and harmless in all of them.
         if !plan.unset.is_empty() {
@@ -49,7 +59,19 @@ impl ShellEmitter for Zsh {
         }
 
         for (k, v) in &plan.set {
-            out.push_str(&format!("export {k}={}\n", sh_quote(v)));
+            // HATS_HAT is always the last entry: the envFrom commands run
+            // before it, so the hat is not marked on until they have.
+            if k == "HATS_HAT" {
+                for (label, command) in &plan.env_from {
+                    out.push_str(&env_from_block(label, command));
+                }
+            }
+            match v {
+                ShellValue::Literal(s) => out.push_str(&format!("export {k}={}\n", sh_quote(s))),
+                // The command is shell code by design, from the user's own
+                // config file: it goes in verbatim.
+                ShellValue::Eval(cmd) => out.push_str(&format!("export {k}=\"$({cmd})\"\n")),
+            }
         }
 
         // Guarded so re-sourcing a hat cannot grow PATH without bound.
@@ -66,6 +88,32 @@ impl ShellEmitter for Zsh {
 
         out
     }
+}
+
+/// The loop that exports one envFrom command's `KEY=val` output.
+///
+/// The command runs via a heredoc command substitution, valid in sh and zsh
+/// alike. Lines that are empty, comments, or whose key is not a valid
+/// variable name are skipped: the key guard is also what keeps the
+/// `eval "unset $HATS_ENVFROM_KEYS"` on the next switch safe. The value is
+/// everything after the first `=`, taken literally.
+fn env_from_block(label: &str, command: &str) -> String {
+    format!(
+        r#"# hats: envFrom {label}
+_hats_envfrom=''
+while IFS= read -r _hats_line; do
+  case "$_hats_line" in ''|'#'*) continue ;; esac
+  _hats_k=${{_hats_line%%=*}}
+  case "$_hats_k" in ''|[0-9]*|*[!A-Za-z0-9_]*) continue ;; esac
+  export "$_hats_k=${{_hats_line#*=}}"
+  _hats_envfrom="$_hats_envfrom $_hats_k"
+done <<HATS_EOF
+$({command})
+HATS_EOF
+[ -n "$_hats_envfrom" ] && export HATS_ENVFROM_KEYS="${{HATS_ENVFROM_KEYS:-}}$_hats_envfrom"
+unset _hats_envfrom _hats_line _hats_k 2>/dev/null
+"#
+    )
 }
 
 /// Tint this terminal, or this tmux pane.
@@ -156,6 +204,82 @@ mod tests {
             .filter(|l| l.starts_with("export "))
             .collect();
         assert_eq!(*exports.last().unwrap(), "export HATS_HAT=acme");
+    }
+
+    #[test]
+    fn an_eval_value_is_exported_as_a_command_substitution() {
+        let script = emit("acme");
+        assert!(
+            script.contains(r#"export AWS_ACCOUNT="$(printf 123)""#),
+            "{script}"
+        );
+    }
+
+    /// The previous switch's envFrom keys are cleared first, before even the
+    /// static unset list, and on every switch whether or not this hat has an
+    /// envFrom of its own.
+    #[test]
+    fn the_dynamic_env_from_unset_comes_first_on_every_switch() {
+        for hat in ["normal", "acme"] {
+            let script = emit(hat);
+            let dynamic = script
+                .find(r#"eval "unset $HATS_ENVFROM_KEYS""#)
+                .expect("no dynamic unset");
+            let fixed = script.find("\nunset ").expect("no static unset");
+            assert!(dynamic < fixed, "{script}");
+        }
+    }
+
+    #[test]
+    fn env_from_runs_after_every_export_but_the_marker() {
+        let script = emit("acme");
+        let block = script.find("# hats: envFrom probe").expect("no envFrom");
+        let gh = script.find("export GH_CONFIG_DIR").unwrap();
+        let marker = script.find("export HATS_HAT").unwrap();
+        assert!(gh < block && block < marker, "{script}");
+    }
+
+    /// End to end: envFrom's KEY=val lines become variables, the exported
+    /// keys are recorded, and switching to a hat without envFrom clears them.
+    #[test]
+    fn env_from_exports_are_set_then_cleared_by_the_next_switch() {
+        let probe = format!(
+            "{}\nprintf '%s|%s|%s|%s\\n' \
+             \"$DYN_A\" \"$DYN_B\" \"$HATS_ENVFROM_KEYS\" \"$AWS_ACCOUNT\"\n\
+             {}\nprintf '[%s][%s][%s]\\n' \"$DYN_A\" \"$DYN_B\" \"$HATS_ENVFROM_KEYS\"",
+            emit("acme"),
+            emit("normal")
+        );
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&probe)
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout).trim(),
+            "a1|two words| DYN_A DYN_B|123\n[][][]",
+            "stderr: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Lines that are not well-formed KEY=val must be skipped, both because
+    /// `export` would choke and because the recorded keys are later handed to
+    /// `eval "unset ..."`.
+    #[test]
+    fn env_from_skips_lines_that_are_not_well_formed_pairs() {
+        let block = env_from_block(
+            "junk",
+            r"printf 'OK=1\nnot a pair\n9BAD=2\nBAD-KEY=3\n#C=4\n\nALSO_OK=x=y\n'",
+        );
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "{block}\nprintf '%s|%s|%s' \"$OK\" \"$ALSO_OK\" \"$HATS_ENVFROM_KEYS\""
+            ))
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout), "1|x=y| OK ALSO_OK");
     }
 
     #[test]
