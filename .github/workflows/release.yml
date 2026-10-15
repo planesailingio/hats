@@ -16,7 +16,7 @@
 #
 # Re-running the tap and vsix jobs alone: Actions -> Release -> Run workflow
 # -> version.
-# See docs/releasing.md for the release procedure and the dry run.
+# See the Releasing section of README.md for the procedure and the dry run.
 name: Release
 
 on:

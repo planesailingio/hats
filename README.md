@@ -651,6 +651,75 @@ Version 0.11 split the dotfiles engine out into bosun. On an existing machine:
 Plain semver on the binary. After `brew upgrade hats` there is nothing else to
 run: the repo-tag lockstep went to bosun with the dotfiles.
 
+## Releasing
+
+A release is a `v*` tag. Everything else — building the four archives,
+publishing the GitHub release, rendering the Homebrew formula, attaching the
+`.vsix` — happens in [.github/workflows/release.yml](.github/workflows/release.yml)
+off the back of that tag. There is nothing to run by hand.
+
+The only version that matters is the one in `cli/Cargo.toml`. The `verify` job
+refuses a tag that disagrees with it, so a release can never ship a binary that
+reports a different version to `brew upgrade`.
+
+1. Land the work on `main` and let CI pass.
+2. Bump `version` in `cli/Cargo.toml`, then `cargo check` so `Cargo.lock` picks
+   it up. Commit both, alone, as `Bump to <version>`.
+3. Tag that commit and push:
+
+   ```sh
+   git tag -a v0.13.0 -m v0.13.0
+   git push origin main
+   git push origin v0.13.0
+   ```
+
+4. Watch it: `gh run watch`, or Actions → Release. Five jobs, in order:
+   `verify`, `build` (×4 targets), `release`, then `tap` and `vsix` together.
+5. Confirm the tap moved — `brew update && brew info planesailingio/tools/hats`
+   should report the new version. The commit lands in
+   [planesailingio/homebrew-tools](https://github.com/planesailingio/homebrew-tools)
+   as `hats <version>`.
+
+The bump is its own commit, in that order, because the tag has to point at a
+tree whose `cli/Cargo.toml` already holds the new version.
+
+| Job       | What the tag sets off                                                                                                                                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verify`  | Fails the release unless `cli/Cargo.toml` equals the tag minus its `v`.                                                                                                                                                     |
+| `build`   | `hats_<version>_<target>.tar.gz` and a `.sha256` for each of the two macOS and two Linux targets, each carrying the binary, README, LICENCE and the three completion scripts the binary generates itself.                    |
+| `release` | Publishes the archives and checksum files as the GitHub release. A tag with a `-` in it (`v0.13.0-rc1`) is marked a prerelease.                                                                                              |
+| `tap`     | Runs [scripts/update-tap.sh](scripts/update-tap.sh): downloads the four `.sha256` files, renders `Formula/hats.rb` and pushes it to the tap. Skipped for prereleases, so the tap only ever follows finals.                   |
+| `vsix`    | Packages `vscode/hats` and attaches `hats-<ext-version>.vsix` to the same release.                                                                                                                                          |
+
+The extension versions separately: `vscode/hats/package.json` carries its own
+version, bumped only when the extension changes, and the `vsix` job names the
+artefact after that rather than the tag. Do not bump it because the CLI moved.
+
+**Credentials.** The `tap` job pushes to another repository, which the default
+`GITHUB_TOKEN` cannot do; it mints a short-lived installation token for the
+`all-ci-workflows` GitHub App from `vars.TAP_APP_ID` and
+`secrets.TAP_APP_PRIVATE_KEY`. Rotate by generating a new private key on the
+app's settings page and replacing the secret in each repository that uses it.
+`release.yml` has the failure modes written out at the top. `gh` here is
+authenticated under one hat, so run release commands from a shell wearing it.
+
+**Dry run.** `update-tap.sh` is the only step that touches the outside world on
+its own, and it asks first. Run it against a version that is already published
+and it renders `Formula/hats.rb` locally, then prompts before pushing; answer
+no and read the file. CI sets `HATS_TAP_CONFIRM=1` to skip the prompt.
+
+```sh
+scripts/update-tap.sh 0.12.0     # renders ./Formula/hats.rb, prompts, say no
+```
+
+**When something goes wrong.** A failed `tap` behind a good release re-runs on
+its own: Actions → Release → Run workflow, with the version and no leading `v`
+(`0.13.0`); `verify`, `build` and `release` are skipped. A wrong version in
+`cli/Cargo.toml` is caught by `verify` before anything is published — fix it,
+then delete and recreate the tag. A bad release that did ship gets a new patch
+version: never move a tag the tap has already followed, because Homebrew holds
+the old archives' checksums and re-tagging rebuilds the archives under them.
+
 ## Development
 
 ```sh
