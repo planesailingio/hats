@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use super::{aws, azure, coder, git, github, k9s, kube, ssh, terraform, vscode};
+use super::{aws, azure, coder, git, github, gpg, k9s, kube, ssh, terraform, vscode};
 use crate::config::Config;
 
 /// Names that would land a hat's file on one every hat shares.
@@ -40,6 +40,9 @@ pub enum Kind {
     Azure(String),
     /// An empty owner-only directory for this hat's GitHub config.
     Github(String),
+    /// An owner-only GnuPG home for this hat: configuration and public keys
+    /// from the shared one, no secret keys.
+    Gpg(String),
     /// A VS Code profile for this hat, registered with VS Code and seeded
     /// from the default settings. Only when VS Code is not running.
     VscodeProfile(String),
@@ -166,6 +169,17 @@ fn per_hat(cfg: &Config, home: &Path, name: &str) -> Vec<Scaffold> {
             Kind::Github(name.to_string()),
         ));
     }
+    if hat.gpg_isolated() {
+        out.push(make(
+            home,
+            gpg::config_dir(home, name),
+            match gpg::shared(home) {
+                Some(p) => format!("config and public keys from {}", tilde(&p, home)),
+                None => "empty, owner-only".into(),
+            },
+            Kind::Gpg(name.to_string()),
+        ));
+    }
     if wants_vscode_profile(cfg, home, name) && !vscode::running(home) {
         out.push(make(
             home,
@@ -253,6 +267,7 @@ pub fn create(s: &Scaffold, home: &Path) -> Result<bool> {
         Kind::Terraform(hat) => terraform::isolate(home, hat).map(|_| true),
         Kind::Azure(hat) => azure::isolate(home, hat).map(|_| true),
         Kind::Github(hat) => github::isolate(home, hat).map(|_| true),
+        Kind::Gpg(hat) => gpg::isolate(home, hat).map(|_| true),
         // False when VS Code started since the plan was made, like any other
         // scaffold whose target appeared in the meantime.
         Kind::VscodeProfile(hat) => vscode::register(home, hat),
@@ -264,8 +279,9 @@ pub fn create(s: &Scaffold, home: &Path) -> Result<bool> {
 ///
 /// This ignores the hat's isolation settings on purpose: a hat that turned
 /// kube isolation off after its kubeconfig was seeded still owns the copy.
-/// The k9s and coder entries are whole directories, so plugins and aliases
-/// added by hand, and a coder login, go with them.
+/// The k9s, coder and gpg entries are whole directories, so plugins and
+/// aliases added by hand, a coder login and any key imported into the hat's
+/// GnuPG home go with them.
 pub fn owned_paths(home: &Path, name: &str) -> Vec<PathBuf> {
     let mut out = vec![
         ssh::config_path(home, name),
@@ -278,6 +294,7 @@ pub fn owned_paths(home: &Path, name: &str) -> Vec<PathBuf> {
         terraform::config_path(home, name),
         azure::config_dir(home, name),
         github::config_dir(home, name),
+        gpg::config_dir(home, name),
         vscode::profile_dir(home, name),
     ];
     out.sort();
@@ -286,7 +303,8 @@ pub fn owned_paths(home: &Path, name: &str) -> Vec<PathBuf> {
 
 /// Check a name is safe to build a hat's paths from.
 ///
-/// A hat's name becomes part of seven paths, and `hats hat delete` removes
+/// A hat's name becomes part of every path in [`owned_paths`], and
+/// `hats hat delete` removes
 /// them, so anything that could climb out of its directory (a slash, a
 /// leading dot) or land on a file every hat shares is refused.
 pub fn check_name(name: &str) -> Result<()> {
@@ -466,15 +484,17 @@ mod tests {
             "~/.kube/config.acme",
             "~/.config/k9s/hats/acme/config.yaml",
             "~/.config/coderv2/hats/acme",
+            "~/.gnupg/.hats/acme",
         ] {
             assert!(got.contains(&want.to_string()), "missing {want}: {got:?}");
         }
-        // plain opts out of kube, k9s and coder; skins is neither managed nor
-        // present.
+        // plain opts out of kube, k9s, coder and gpg; skins is neither managed
+        // nor present.
         for unwanted in [
             "~/.kube/config.plain",
             "~/.config/k9s/hats/plain/config.yaml",
             "~/.config/coderv2/hats/plain",
+            "~/.gnupg/.hats/plain",
             "~/.config/k9s/hats/acme/skins",
         ] {
             assert!(!got.contains(&unwanted.to_string()), "{unwanted}: {got:?}");

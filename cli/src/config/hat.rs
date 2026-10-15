@@ -53,6 +53,8 @@ pub const ALWAYS_OWNED: &[&str] = &[
     "AZURE_CONFIG_DIR",
     // GitHub CLI auth token and config are per-hat when isolated.
     "GH_CONFIG_DIR",
+    // The GnuPG keyring, trustdb and agent are per-hat when isolated.
+    "GNUPGHOME",
     // The keys the last switch's `envFrom` commands exported. They are not
     // known until the commands run, so the next switch reads this variable to
     // clear them before the static unset list below takes over.
@@ -254,6 +256,24 @@ impl GithubSpec {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GpgSpec {
+    /// Give this hat its own GnuPG home, and with it its own keyring, trustdb
+    /// and agent. Defaults to true: one keyring means one set of keys and one
+    /// passphrase cache for every terminal on the machine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub isolate: Option<bool>,
+}
+
+impl GpgSpec {
+    fn merge(&mut self, child: &GpgSpec) {
+        if child.isolate.is_some() {
+            self.isolate = child.isolate;
+        }
+    }
+}
+
 /// A hat exactly as written in `~/.hats/config.yaml`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -281,6 +301,8 @@ pub struct HatSpec {
     pub azure: Option<AzureSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub github: Option<GithubSpec>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpg: Option<GpgSpec>,
     #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
     pub env: IndexMap<String, EnvValue>,
     /// Label -> command printing `KEY=val` lines, all exported at switch time.
@@ -310,6 +332,7 @@ pub struct ResolvedHat {
     pub terraform: TerraformSpec,
     pub azure: AzureSpec,
     pub github: GithubSpec,
+    pub gpg: GpgSpec,
     pub env: IndexMap<String, EnvValue>,
     pub env_from: IndexMap<String, String>,
     pub path: Vec<String>,
@@ -353,6 +376,11 @@ impl ResolvedHat {
     /// Whether this hat gets its own GitHub CLI config.
     pub fn github_isolated(&self) -> bool {
         self.github.isolate.unwrap_or(true)
+    }
+
+    /// Whether this hat gets its own GnuPG home, keyring and agent.
+    pub fn gpg_isolated(&self) -> bool {
+        self.gpg.isolate.unwrap_or(true)
     }
 
     /// Every environment variable this hat sets, derived plus explicit.
@@ -457,6 +485,7 @@ pub fn resolve(
         terraform: TerraformSpec::default(),
         azure: AzureSpec::default(),
         github: GithubSpec::default(),
+        gpg: GpgSpec::default(),
         env: IndexMap::new(),
         env_from: IndexMap::new(),
         path: Vec::new(),
@@ -494,6 +523,9 @@ pub fn resolve(
         }
         if let Some(github) = &spec.github {
             out.github.merge(github);
+        }
+        if let Some(gpg) = &spec.gpg {
+            out.gpg.merge(gpg);
         }
         for (k, v) in &spec.env {
             out.env.insert(k.clone(), v.clone());
@@ -656,6 +688,15 @@ acme:
         let hats = spec("base: {}\nchild:\n  inherits: base\n  k9s: { isolate: false }\n");
         assert!(resolve("base", &hats, None).unwrap().k9s_isolated());
         assert!(!resolve("child", &hats, None).unwrap().k9s_isolated());
+    }
+
+    #[test]
+    fn gpg_isolation_defaults_to_on_and_a_child_can_turn_it_off() {
+        let hats = spec("base: {}\nchild:\n  inherits: base\n  gpg: { isolate: false }\n");
+        assert!(resolve("base", &hats, None).unwrap().gpg_isolated());
+        assert!(!resolve("child", &hats, None).unwrap().gpg_isolated());
+        // Whichever way it is set, GNUPGHOME is cleared on every switch.
+        assert!(all_env_keys(&hats, None).contains("GNUPGHOME"));
     }
 
     #[test]

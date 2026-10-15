@@ -15,6 +15,7 @@ pub mod emit;
 pub mod folder;
 pub mod git;
 pub mod github;
+pub mod gpg;
 pub mod k9s;
 pub mod kube;
 pub mod scaffold;
@@ -93,6 +94,8 @@ pub struct EnvPlan {
     pub azure_config_dir: Option<PathBuf>,
     /// This hat's own GitHub config directory, or None when isolation is off.
     pub github_config_dir: Option<PathBuf>,
+    /// This hat's own GnuPG home, or None when isolation is off.
+    pub gpg_home: Option<PathBuf>,
     /// Terminal tint, or None to leave the background alone.
     pub colour: Option<String>,
     /// Secrets the hat refers to that have no value. Reported to stderr so
@@ -143,6 +146,7 @@ impl EnvPlan {
             terraform_config_file: None,
             azure_config_dir: None,
             github_config_dir: None,
+            gpg_home: None,
             colour: None,
             missing_secrets: Vec::new(),
         };
@@ -231,6 +235,14 @@ impl EnvPlan {
                 "GH_CONFIG_DIR".into(),
                 d.to_string_lossy().into_owned().into(),
             );
+        }
+
+        if p.gpg_isolated() {
+            plan.gpg_home = Some(gpg::config_dir(home, name));
+        }
+        if let Some(d) = &plan.gpg_home {
+            plan.set
+                .insert("GNUPGHOME".into(), d.to_string_lossy().into_owned().into());
         }
 
         if let Some(url) = &p.coder.url {
@@ -395,6 +407,7 @@ hats:
     kube: { isolate: false }
     k9s: { isolate: false }
     coder: { isolate: false }
+    gpg: { isolate: false }
 "##;
 }
 
@@ -476,6 +489,19 @@ mod tests {
         // hats never sets the token, but one exported by hand must not ride
         // along into the next hat.
         assert!(plain.unset.contains(&"CODER_SESSION_TOKEN".to_string()));
+    }
+
+    #[test]
+    fn gpg_points_at_a_per_hat_home_unless_the_hat_opts_out() {
+        let p = plan("acme", EnvOptions::default());
+        assert_eq!(p.set["GNUPGHOME"], "/home/t/.gnupg/.hats/acme");
+
+        let plain = plan("plain", EnvOptions::default());
+        assert!(plain.gpg_home.is_none());
+        assert!(!plain.set.contains_key("GNUPGHOME"));
+        // Still cleared, so the previous hat's keyring cannot ride along into
+        // a hat that shares the machine's one.
+        assert!(plain.unset.contains(&"GNUPGHOME".to_string()));
     }
 
     #[test]

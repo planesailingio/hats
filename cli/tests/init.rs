@@ -122,6 +122,7 @@ fn init_writes_a_config_and_scaffolds_without_any_network() {
         ".gitconfig.d/normal",
         ".gitconfig.d/acme",
         ".kube/config.acme",
+        ".gnupg/.hats/acme/gpg.conf",
     ] {
         assert!(
             env.user_home.join(rel).is_file(),
@@ -558,11 +559,15 @@ fn hat_delete_removes_the_hat_and_moves_every_file_to_the_backup() {
         .assert()
         .success();
 
-    // A file hats never manages: a k9s plugin the user added to the hat's own
-    // directory.
+    // Files hats never manages: a k9s plugin the user added to the hat's own
+    // directory, and a key imported into the hat's GnuPG home.
     let plugin = env.user_home.join(".config/k9s/hats/globex/plugins.yaml");
     std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
     std::fs::write(&plugin, "plugins: {}\n").unwrap();
+    let key = env
+        .user_home
+        .join(".gnupg/.hats/globex/private-keys-v1.d/ABCD.key");
+    std::fs::write(&key, "secret").unwrap();
 
     env.hats()
         .args(["hat", "delete", "globex", "--yes"])
@@ -579,6 +584,7 @@ fn hat_delete_removes_the_hat_and_moves_every_file_to_the_backup() {
         ".kube/config.globex",
         ".config/k9s/hats/globex",
         ".config/coderv2/hats/globex",
+        ".gnupg/.hats/globex",
     ] {
         assert!(
             env.user_home.join(rel).symlink_metadata().is_err(),
@@ -595,6 +601,10 @@ fn hat_delete_removes_the_hat_and_moves_every_file_to_the_backup() {
     let kept = |rel: &str| backups.iter().any(|b| b.join(rel).exists());
     assert!(kept(".ssh/config.d/globex.conf"));
     assert!(kept(".config/k9s/hats/globex/plugins.yaml"));
+    assert!(
+        kept(".gnupg/.hats/globex/private-keys-v1.d/ABCD.key"),
+        "a key imported into the hat must be backed up, never destroyed"
+    );
     assert!(kept(".kube/config.globex"));
     assert!(kept("config.yaml"));
 

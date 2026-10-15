@@ -59,6 +59,7 @@ changing it in one terminal changes it in all of them:
 | Terraform    | `~/.terraformrc` and `~/.terraform.d/`         | `~/.terraform.d/.hats/<hat>.tfrc`                   | `TF_CLI_CONFIG_FILE`                                          |
 | Azure CLI    | `~/.azure/`                                    | `~/.azure/.hats/<hat>/`                             | `AZURE_CONFIG_DIR`                                            |
 | GitHub CLI   | `~/.config/gh/`                                | `~/.config/gh/.hats/<hat>/`                         | `GH_CONFIG_DIR`                                               |
+| GnuPG        | `~/.gnupg/`                                    | `~/.gnupg/.hats/<hat>/`                             | `GNUPGHOME`                                                   |
 | VS Code      | one global `settings.json`                     | a VS Code profile per hat                           | `code --profile <hat>`, then VS Code remembers the folder     |
 | npm, pip     | `~/.npmrc`, a configured index URL             | the hat's `env:`                                    | `NPM_CONFIG_USERCONFIG`, `PIP_INDEX_URL`                      |
 | node, python | whatever the version manager last made default | the hat's `path:`                                   | `PATH`, prepended in that shell alone                         |
@@ -374,8 +375,9 @@ per-hat mechanisms hang off, each created once and then yours:
 ### Per-hat tool isolation
 
 By default each hat gets its own configuration for the tools below, so commands
-such as `kubectl config use-context`, `aws sso login`, `terraform init`, `az login` or `gh auth login` only
-affect the shell that ran them.
+such as `kubectl config use-context`, `aws sso login`, `terraform init`,
+`az login`, `gh auth login` or `gpg --import` only affect the shell that ran
+them.
 
 | Tool         | Per-hat location                                 | Selected by                                      | Opt out                             |
 | ------------ | ------------------------------------------------ | ------------------------------------------------ | ----------------------------------- |
@@ -384,6 +386,7 @@ affect the shell that ran them.
 | Terraform    | `~/.terraform.d/.hats/<hat>.tfrc`                | `TF_CLI_CONFIG_FILE`                             | `terraform: { isolate: false }`     |
 | Azure CLI    | `~/.azure/.hats/<hat>/`                          | `AZURE_CONFIG_DIR`                               | `azure: { isolate: false }`         |
 | GitHub CLI   | `~/.config/gh/.hats/<hat>/`                      | `GH_CONFIG_DIR`                                  | `github: { isolate: false }`        |
+| GnuPG        | `~/.gnupg/.hats/<hat>/`                          | `GNUPGHOME`                                      | `gpg: { isolate: false }`           |
 | k9s          | `~/.config/k9s/hats/<hat>/`                      | `K9S_CONFIG_DIR`                                 | `k9s: { isolate: false }`           |
 | coder        | `~/.config/coderv2/hats/<hat>/`                  | `CODER_CONFIG_DIR`                               | `coder: { isolate: false }`         |
 | VS Code      | a profile named after the hat                    | `code --profile <hat>`, then VS Code remembers   | `features.vscode`                   |
@@ -449,6 +452,42 @@ isolating the token cache and cloud configuration from `az login` and `az accoun
 `GH_CONFIG_DIR` points each hat at its own `~/.config/gh/.hats/<hat>/` directory,
 isolating authentication tokens and host configuration from `gh auth login`.
 
+#### GnuPG
+
+`GNUPGHOME` points each hat at its own `~/.gnupg/.hats/<hat>/` directory: its
+own keyring, its own ownertrust, and its own gpg-agent, because the agent binds
+its socket inside the home it serves. A key imported for one client is
+invisible to the others, and a passphrase typed in one terminal is cached for
+that hat alone.
+
+A new hat's home is seeded from `~/.gnupg` with configuration and public
+material only — `gpg.conf`, `gpg-agent.conf`, `dirmngr.conf`, the public
+keyring and the trustdb. Secret keys are deliberately not copied: a hat's key
+is imported into the hat, from a shell wearing it.
+
+```sh
+hat acme
+gpg --import acme.key.asc      # or: gpg --full-generate-key
+```
+
+To sign that hat's commits with that hat's key, name the key id in the hat's
+`identity: { signing_key: ... }` (a `{ secret: ... }` reference works, and
+hats exports it as `user.signingkey` per shell), then put
+`[commit] gpgsign = true` in `~/.gitconfig.d/<hat>` so it applies under that
+hat alone.
+
+Worth knowing:
+
+- `gpgconf --kill gpg-agent` stops the agent of the hat you are wearing, not
+  the others. Each hat's agent starts on its first use.
+- `GPG_TTY` is per-terminal rather than per-hat, so hats neither sets nor
+  clears it; `export GPG_TTY=$(tty)` belongs in your shell config.
+- The agent's socket path has to fit in 104 bytes, home directory and hat name
+  included, or the agent cannot bind and gpg reports only `No agent running`.
+  `hats doctor` measures it, so you are told which hat instead.
+- `hats hat delete` moves the whole home to `~/.hats/backups/`, imported keys
+  and all, rather than deleting it.
+
 ### VS Code profiles
 
 Editor settings are not environment variables, so VS Code is handled with its
@@ -512,6 +551,9 @@ creates any that are missing for existing hats:
 - AWS, kube and Terraform: a copy of the shared config file
 - k9s: links to the shared config and theme
 - coder, azure, github: an empty directory, mode 0700
+- GnuPG: a directory at mode 0700 holding the shared `~/.gnupg`'s config and
+  public keys, an empty `private-keys-v1.d/`, and a `gpg.conf` comment header
+  when there was no shared one to copy
 - VS Code: a profile registered with VS Code, its `settings.json` a copy of
   your default one, mode 0700 (only with `features.vscode`, and only while
   VS Code is closed)
@@ -587,6 +629,7 @@ the scaffolded `~/.gitconfig` reads, is seeded there by the wizard.
 | `~/.gitconfig.d/`         | Per-hat git settings in `<hat>`, included by shells wearing that hat. Not in git. |
 | `~/.config/k9s/hats/`     | Per-hat k9s config in `<hat>/`, linked to the shared theme. Machine-local.        |
 | `~/.config/coderv2/hats/` | Per-hat coder login in `<hat>/`: URL and session token, mode 0700.                |
+| `~/.gnupg/.hats/`         | Per-hat GnuPG home in `<hat>/`: keyring, trustdb and agent, mode 0700.            |
 
 ## Migrating from hats ≤ 0.10
 

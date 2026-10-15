@@ -233,6 +233,7 @@ fn ask_one_hat(
         terraform: None,
         azure: None,
         github: None,
+        gpg: None,
         env: IndexMap::new(),
         env_from: IndexMap::new(),
         path: Vec::new(),

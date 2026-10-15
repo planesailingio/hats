@@ -74,6 +74,7 @@ const TOOLS: &[(&str, &str)] = &[
     ("git", "the identity the switch exports is git's to honour"),
     ("fzf", "the hat picker when `hat` is run with no name"),
     ("kubectl", "per-hat kube context switching"),
+    ("gpg", "the per-hat keyring the switch points GNUPGHOME at"),
     (
         // Installed as a Homebrew dependency, so an absence here means a source
         // build or a broken install. Still not fatal: it is only needed to
@@ -206,6 +207,10 @@ pub fn collect(app: &App) -> Vec<Check> {
                 checks.push(ssh_check(app));
             }
 
+            if let Ok(platform) = app.platform() {
+                checks.extend(gpg_check(&cfg, &platform.home));
+            }
+
             if cfg.vscode_enabled()
                 && let Ok(platform) = app.platform()
                 && crate::hat::vscode::installed(&platform.home)
@@ -259,6 +264,48 @@ fn vscode_check(cfg: &crate::config::Config, home: &std::path::Path) -> Check {
         format!("no VS Code profile for {}", missing.join(", ")),
         Some(hint),
     )
+}
+
+/// gpg-agent binds its socket inside `GNUPGHOME`, so a hat whose name makes
+/// that path too long gets no agent at all — and gpg says only `No agent
+/// running`, which names neither the socket nor the hat. Measure it here
+/// instead, where there is somewhere to say which hat and what to do.
+///
+/// Nothing to report when no hat isolates gpg: there is no per-hat socket to
+/// be too long.
+fn gpg_check(cfg: &Config, home: &std::path::Path) -> Vec<Check> {
+    use crate::hat::gpg;
+
+    let isolating: Vec<String> = cfg
+        .hat_names()
+        .into_iter()
+        .filter(|name| cfg.resolve_hat(name).is_ok_and(|h| h.gpg_isolated()))
+        .collect();
+    if isolating.is_empty() {
+        return Vec::new();
+    }
+
+    let long: Vec<String> = isolating
+        .iter()
+        .filter(|name| gpg::agent_socket(home, name).as_os_str().len() > gpg::SOCKET_MAX)
+        .cloned()
+        .collect();
+    if long.is_empty() {
+        return vec![Check::ok(
+            "gpg home",
+            format!("own keyring and agent for {}", isolating.join(", ")),
+        )];
+    }
+    vec![Check::warn(
+        "gpg home",
+        format!(
+            "the gpg-agent socket path is over {} bytes for {}; gpg will \
+             report `No agent running` in those hats",
+            gpg::SOCKET_MAX,
+            long.join(", ")
+        ),
+        Some("use a shorter hat name, or give the hat `gpg: { isolate: false }`"),
+    )]
 }
 
 /// OpenSSH expands environment variables in `Include` from 9.9 on.
@@ -334,6 +381,28 @@ mod tests {
             let c = checks.iter().find(|c| c.name == name).unwrap();
             assert_ne!(c.level, Level::Fail, "{name} must not be a hard failure");
         }
+    }
+
+    #[test]
+    fn a_hat_whose_agent_socket_would_not_fit_is_reported_with_the_way_out() {
+        let cfg = crate::hat::testkit::config(
+            "hats:\n  acme: {}\n  plain:\n    gpg: { isolate: false }\n",
+        );
+        let fits = gpg_check(&cfg, std::path::Path::new("/Users/jane"));
+        assert_eq!(fits.len(), 1);
+        assert_eq!(fits[0].level, Level::Ok);
+        assert_eq!(fits[0].detail, "own keyring and agent for acme");
+
+        let deep = std::path::PathBuf::from(format!("/Users/{}", "d".repeat(80)));
+        let over = gpg_check(&cfg, &deep);
+        assert_eq!(over[0].level, Level::Warn);
+        assert!(over[0].detail.contains("acme"), "{:?}", over[0].detail);
+        assert!(!over[0].detail.contains("plain"), "plain opted out");
+        assert!(over[0].fix.is_some());
+
+        // No hat isolates gpg: nothing to measure, nothing to say.
+        let none = crate::hat::testkit::config("hats:\n  plain:\n    gpg: { isolate: false }\n");
+        assert!(gpg_check(&none, std::path::Path::new("/Users/jane")).is_empty());
     }
 
     #[test]

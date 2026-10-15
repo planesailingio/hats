@@ -15,7 +15,7 @@ use crate::app::App;
 use crate::cli::{EnvArgs, ShellInitArgs};
 use crate::hat::emit::{ShellEmitter, Zsh, sh_quote};
 use crate::hat::folder::{self, Step};
-use crate::hat::{EnvOptions, EnvPlan, aws, azure, coder, github, k9s, kube, terraform};
+use crate::hat::{EnvOptions, EnvPlan, aws, azure, coder, github, gpg, k9s, kube, terraform};
 use crate::secrets::store::Secrets;
 
 /// The integration script, compiled into the binary so a mid-upgrade repo
@@ -224,6 +224,28 @@ fn build(app: &mut App, args: &EnvArgs) -> Result<String> {
             Err(e) => {
                 app.ui.detail(format!("github isolation skipped: {e:#}"));
                 plan.set.shift_remove("GH_CONFIG_DIR");
+            }
+        }
+    }
+
+    // gpg creates a missing GNUPGHOME itself, but at whatever the umask allows
+    // and with no keyring to start from, so seed it here: an open home makes
+    // gpg warn on every run, and a hat's first `gpg --import` should land next
+    // to the public keys it already trusted.
+    if plan.gpg_home.is_some() {
+        match gpg::isolate(&platform.home, &name) {
+            Ok(dir) => {
+                plan.set.insert(
+                    "GNUPGHOME".into(),
+                    dir.to_string_lossy().into_owned().into(),
+                );
+            }
+            // Pointing gpg at a home hats could not make would have gpg build
+            // one of its own there, mode and all, so drop the pointer: the
+            // shell falls back to the shared ~/.gnupg, and says it has.
+            Err(e) => {
+                app.ui.detail(format!("gpg isolation skipped: {e:#}"));
+                plan.set.shift_remove("GNUPGHOME");
             }
         }
     }
